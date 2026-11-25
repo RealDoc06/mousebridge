@@ -23,7 +23,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleIdentifier</key><string>io.github.realdoc06.mousebridge</string>
+  <key>CFBundleIdentifier</key><string>it.realdoc06.mousebridge</string>
   <key>CFBundleName</key><string>MouseBridge</string>
   <key>CFBundleExecutable</key><string>MouseBridge</string>
   <key>CFBundlePackageType</key><string>APPL</string>

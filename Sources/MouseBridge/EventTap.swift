@@ -21,9 +21,9 @@ final class EventTap {
     @ObservationIgnored private var port: CFMachPort?
     @ObservationIgnored private var layout: Layout?
     @ObservationIgnored private var last = CGEvent(source: nil)?.location ?? .zero
-    /// Events left to log after a remap. Stream with: log stream --level debug --predicate 'subsystem == "io.github.realdoc06.mousebridge"'
+    /// Events left to log after a remap. Stream with: log stream --level debug --predicate 'subsystem == "it.realdoc06.mousebridge"'
     @ObservationIgnored private var trace = 0
-    @ObservationIgnored private let log = Logger(subsystem: "io.github.realdoc06.mousebridge", category: "bridge")
+    @ObservationIgnored private let log = Logger(subsystem: "it.realdoc06.mousebridge", category: "bridge")
 
     /// NX_SYSDEFINED: media and brightness keys.
     private static let systemDefined: UInt32 = 14
