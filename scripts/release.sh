@@ -26,4 +26,6 @@ fi
   --download-url-prefix "https://github.com/RealDoc06/mousebridge/releases/download/$TAG/" "$OUT"
 
 git tag "$TAG" && git push origin HEAD "$TAG"
-gh release create "$TAG" "$ZIP" "$OUT/appcast.xml" --title "$TAG" --generate-notes
+# Created first, assets after: one-shot creation with assets has hit GitHub 500s.
+gh release create "$TAG" --title "$TAG" --generate-notes
+gh release upload "$TAG" "$ZIP" "$OUT/appcast.xml" --clobber
