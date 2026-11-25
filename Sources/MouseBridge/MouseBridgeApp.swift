@@ -103,10 +103,37 @@ struct MenuView: View {
 
 private struct MonitorControls: View {
     let monitor: Monitor
+    /// The name being typed, non-nil while renaming.
+    @State private var draft: String?
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(monitor.name).font(.headline)
+            HStack(spacing: 8) {
+                if let draft {
+                    TextField(monitor.defaultName, text: Binding(get: { draft }, set: { self.draft = $0 }))
+                        .textFieldStyle(.plain)
+                        .focused($focused)
+                        .onAppear { focused = true }
+                        .onSubmit(commit)
+                        .onExitCommand { self.draft = nil }
+                } else {
+                    Text(monitor.customName.isEmpty ? monitor.defaultName : monitor.customName)
+                }
+                Spacer()
+                if draft == nil, !monitor.customName.isEmpty {
+                    Button("Reset name", systemImage: "arrow.counterclockwise") { monitor.customName = "" }
+                        .help("Reset to \(monitor.defaultName)")
+                }
+                if draft == nil {
+                    Button("Rename", systemImage: "pencil") { draft = monitor.customName }.help("Rename")
+                } else {
+                    Button("Save", systemImage: "checkmark", action: commit).help("Save")
+                }
+            }
+            .font(.headline)
+            .buttonStyle(.borderless)
+            .labelStyle(.iconOnly)
             HStack {
                 Image(systemName: "sun.max").frame(width: 18)
                 Slider(value: Binding(get: { monitor.brightness }, set: { monitor.setBrightness($0) }))
@@ -121,5 +148,11 @@ private struct MonitorControls: View {
                 Toggle("HDR", isOn: Binding(get: { monitor.hdr }, set: { monitor.setHDR($0) }))
             }
         }
+    }
+
+    /// Saves the typed name. An empty name falls back to the display's own.
+    private func commit() {
+        monitor.customName = draft?.trimmingCharacters(in: .whitespaces) ?? monitor.customName
+        draft = nil
     }
 }
