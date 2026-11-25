@@ -1,8 +1,8 @@
 #!/bin/sh
 # Publishes a GitHub release that installed copies pick up through Sparkle.
 # Usage: scripts/release.sh 0.2.0
-# Needs: the Sparkle EdDSA key in the login keychain (account "mousebridge"), gh auth.
-# Optional: NOTARY_PROFILE=<notarytool keychain profile> to notarize and staple.
+# Needs: gh auth, the Sparkle EdDSA key in SPARKLE_KEY (default ~/.config/mousebridge/sparkle_ed25519),
+# and a notarytool keychain profile in NOTARY_PROFILE (default "mousebridge"; empty skips notarizing).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -10,6 +10,8 @@ VERSION="${1:?usage: scripts/release.sh <version>}"
 TAG="v$VERSION"
 OUT=build/release
 ZIP="$OUT/MouseBridge-$VERSION.zip"
+SPARKLE_KEY="${SPARKLE_KEY:-$HOME/.config/mousebridge/sparkle_ed25519}"
+NOTARY_PROFILE="${NOTARY_PROFILE-mousebridge}"
 
 git diff --quiet HEAD || { echo "commit your changes first"; exit 1; }
 scripts/build-app.sh "$VERSION"
@@ -22,7 +24,7 @@ if [ -n "${NOTARY_PROFILE:-}" ]; then
   rm "$ZIP" && ditto -c -k --keepParent build/MouseBridge.app "$ZIP"
 fi
 
-.build/artifacts/sparkle/Sparkle/bin/generate_appcast --account mousebridge \
+.build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file "$SPARKLE_KEY" \
   --download-url-prefix "https://github.com/RealDoc06/mousebridge/releases/download/$TAG/" "$OUT"
 
 git tag "$TAG" && git push origin HEAD "$TAG"

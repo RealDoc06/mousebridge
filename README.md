@@ -18,6 +18,6 @@ scripts/build-app.sh             # signed build/MouseBridge.app
 scripts/release.sh 0.2.0         # tag, build, sign appcast, publish GitHub release
 ```
 
-Releases need the Sparkle EdDSA key in the login keychain (account `mousebridge`). Set `NOTARY_PROFILE` to a notarytool keychain profile to notarize.
+Releases need the Sparkle EdDSA key at `~/.config/mousebridge/sparkle_ed25519` (`SPARKLE_KEY`) and a notarytool keychain profile named `mousebridge` (`NOTARY_PROFILE`).
 
 Scope: side-by-side displays. Vertical crossings are left to macOS.
