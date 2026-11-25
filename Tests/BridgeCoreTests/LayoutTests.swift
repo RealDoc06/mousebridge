@@ -43,3 +43,11 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
     let jitter = CGPoint(x: landed.x - 1, y: landed.y)
     #expect(desk.remap(from: landed, to: jitter, delta: CGVector(dx: -1, dy: 0)) == nil)
 }
+
+@Test func distanceToSharedEdgeOnlyCountsBorderingEdges() {
+    #expect(desk.distanceToSharedEdge(CGPoint(x: 400, y: 500)) == 400)
+    #expect(desk.distanceToSharedEdge(CGPoint(x: -300, y: 800)) == 300)
+    #expect(desk.distanceToSharedEdge(CGPoint(x: -1900, y: 800)) == 1900) // MSI's left edge borders nothing
+    #expect(Layout(displays: [lenovo], alignment: .bottom).distanceToSharedEdge(CGPoint(x: 5, y: 5)) == nil)
+    #expect(desk.distanceToSharedEdge(CGPoint(x: 0, y: -400)) == 400) // above the edge, e.g. on a display stacked on top
+}

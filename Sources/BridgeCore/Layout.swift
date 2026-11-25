@@ -62,6 +62,17 @@ public struct Layout: Sendable {
         )
     }
 
+    /// Distance in points from `p` to the nearest edge where two displays sit side by side, or nil when
+    /// no displays do. An edge spans the full height of both displays, since `remap` clamps onto the shorter one.
+    public func distanceToSharedEdge(_ p: CGPoint) -> CGFloat? {
+        displays.flatMap { a in
+            displays.filter { abs($0.frame.minX - a.frame.maxX) < 1 }.map { b in
+                let top = min(a.frame.minY, b.frame.minY), bottom = max(a.frame.maxY, b.frame.maxY)
+                return hypot(p.x - a.frame.maxX, max(top - p.y, p.y - bottom, 0))
+            }
+        }.min()
+    }
+
     /// Physical top edge of `d` in mm, measured down from the tallest display's top.
     private func top(of d: Display) -> CGFloat {
         switch alignment {
