@@ -25,6 +25,7 @@ public struct Layout: Sendable {
     public let displays: [Display]
     public let alignment: Alignment
     private let tallestMM: CGFloat
+    static let landingInset: CGFloat = 3
 
     public init(displays: [Display], alignment: Alignment) {
         self.displays = displays
@@ -54,8 +55,9 @@ public struct Layout: Sendable {
         guard let dst = neighbors.min(by: { gap(mm, $0) < gap(mm, $1) }) else { return nil }
 
         let localMM = min(max(mm - top(of: dst), 0), dst.heightMM)
+        // Land a few points inside the destination so sensor jitter can't bounce the cursor straight back.
         return CGPoint(
-            x: left ? dst.frame.maxX - 1 : dst.frame.minX,
+            x: left ? dst.frame.maxX - 1 - Self.landingInset : dst.frame.minX + Self.landingInset,
             y: min(dst.frame.minY + localMM / dst.mmPerPoint, dst.frame.maxY - 1)
         )
     }

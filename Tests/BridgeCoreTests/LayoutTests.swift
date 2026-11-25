@@ -12,20 +12,20 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
 
 @Test func msiToLenovoKeepsPhysicalHeight() throws {
     let target = try #require(desk.remap(from: CGPoint(x: -2, y: 900), to: CGPoint(x: 0.5, y: 900), delta: CGVector(dx: 3, dy: 0)))
-    #expect(target.x == 0)
+    #expect(target.x == Layout.landingInset)
     #expect(abs(mmAboveDesk(target.y, on: lenovo) - mmAboveDesk(900, on: msi)) < 0.5)
 }
 
 @Test func lenovoToMsiKeepsPhysicalHeight() throws {
     let target = try #require(desk.remap(from: CGPoint(x: 2, y: 1000), to: CGPoint(x: 0, y: 1000), delta: CGVector(dx: -3, dy: 0)))
-    #expect(target.x == -1)
+    #expect(target.x == -1 - Layout.landingInset)
     #expect(abs(mmAboveDesk(target.y, on: msi) - mmAboveDesk(1000, on: lenovo)) < 0.5)
 }
 
 @Test func lenovoTopStripCrossesOntoMsiTopRow() throws {
     // macOS has no display left of rows 0..<360, so it clamps the cursor at x = 0.
     let target = try #require(desk.remap(from: CGPoint(x: 1, y: 100), to: CGPoint(x: 0, y: 100), delta: CGVector(dx: -4, dy: 0)))
-    #expect(target == CGPoint(x: -1, y: 360))
+    #expect(target == CGPoint(x: -1 - Layout.landingInset, y: 360))
 }
 
 @Test func leavesOtherMovesAlone() {
@@ -36,4 +36,10 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
 @Test func staleStartAfterExternalWarpIsIgnored() {
     // Last seen on the MSI's right edge, then another app warped the cursor to the Lenovo's top-left.
     #expect(desk.remap(from: CGPoint(x: -2, y: 900), to: CGPoint(x: 5, y: 50), delta: CGVector(dx: 3, dy: 0)) == nil)
+}
+
+@Test func jitterAfterCrossingDoesNotBounceBack() throws {
+    let landed = try #require(desk.remap(from: CGPoint(x: -2, y: 900), to: CGPoint(x: 0.5, y: 900), delta: CGVector(dx: 3, dy: 0)))
+    let jitter = CGPoint(x: landed.x - 1, y: landed.y)
+    #expect(desk.remap(from: landed, to: jitter, delta: CGVector(dx: -1, dy: 0)) == nil)
 }

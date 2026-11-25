@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import BridgeCore
 @preconcurrency import CoreGraphics
 
@@ -20,9 +21,20 @@ final class EventTap {
     @ObservationIgnored private var port: CFMachPort?
     @ObservationIgnored private var layout: Layout?
     @ObservationIgnored private var last = CGEvent(source: nil)?.location ?? .zero
+    /// Events left to log after a remap. Stream with: log stream --level debug --predicate 'subsystem == "io.github.realdoc06.mousebridge"'
+    @ObservationIgnored private var trace = 0
+    @ObservationIgnored private let log = Logger(subsystem: "io.github.realdoc06.mousebridge", category: "bridge")
 
     /// NX_SYSDEFINED: media and brightness keys.
     private static let systemDefined: UInt32 = 14
+
+    /// A warp normally mutes real mouse input for 0.25 s, which freezes the cursor after each crossing.
+    /// Zeroing the session's suppression interval removes that; the source must stay alive.
+    @ObservationIgnored private let warpSource: CGEventSource? = {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        source?.localEventsSuppressionInterval = 0
+        return source
+    }()
 
     init() { rebuildLayout() }
 
@@ -79,10 +91,15 @@ final class EventTap {
             dx: event.getDoubleValueField(.mouseEventDeltaX),
             dy: event.getDoubleValueField(.mouseEventDeltaY)
         )
+        if trace > 0 {
+            trace -= 1
+            log.debug("after: \(next.x, format: .fixed(precision: 1)),\(next.y, format: .fixed(precision: 1)) d \(delta.dx),\(delta.dy) t \(event.timestamp)")
+        }
         guard let target = layout?.remap(from: last, to: next, delta: delta) else { return }
+        log.debug("remap: \(self.last.x),\(self.last.y) -> \(next.x),\(next.y) d \(delta.dx),\(delta.dy) => \(target.x),\(target.y) t \(event.timestamp)")
+        trace = 8
         event.location = target
         CGWarpMouseCursorPosition(target)
-        CGAssociateMouseAndMouseCursorPosition(1) // cancels the post-warp input freeze
     }
 
     /// Brightness keys arrive as NX_SYSDEFINED subtype 8 with key type 2 (up) or 3 (down) in data1.
