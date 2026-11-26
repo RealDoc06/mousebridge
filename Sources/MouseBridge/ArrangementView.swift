@@ -30,23 +30,21 @@ struct ArrangementView: View {
         // Until one is picked, the arrows move the first display that isn't the main one.
         let target = selected.flatMap { id in desk.row.first { $0.id == id } }?.id
             ?? desk.row.first { $0.id != CGMainDisplayID() }?.id
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Arrangement").font(.headline)
-                Spacer()
-                Group {
-                    Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
-                        .help("Move the selected display up a pixel")
-                    Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
-                        .help("Move the selected display down a pixel")
-                }
-                .buttonRepeatBehavior(.enabled)
-                Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
-                    .foregroundStyle(desk.guides ? .yellow : .secondary)
-                    .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+        Panel {
+            Text("Arrangement")
+            Spacer()
+            Group {
+                Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
+                    .help("Move the selected display up a pixel")
+                Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
+                    .help("Move the selected display down a pixel")
             }
-            .buttonStyle(.borderless)
-            .labelStyle(.iconOnly)
+            .buttonRepeatBehavior(.enabled)
+            .foregroundStyle(.secondary)
+            Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+                .foregroundStyle(desk.guides ? .yellow : .secondary)
+                .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+        } content: {
             canvas(target: target)
         }
     }
@@ -90,12 +88,12 @@ struct ArrangementView: View {
 
     private func tile(_ d: Display, name: String, dragged: Bool, selected: Bool) -> some View {
         let inches = Double(hypot(d.widthMM, d.heightMM) / 25.4)
-        return RoundedRectangle(cornerRadius: 4)
-            .fill(dragged ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.12))
-            .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(dragged ? 0.6 : 0.25), lineWidth: selected ? 1.5 : 1)
+        return RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(dragged ? Color.accentColor.opacity(0.35) : Color.white.opacity(0.07))
+            .strokeBorder(selected ? Color.accentColor : Color.white.opacity(dragged ? 0.5 : 0.14), lineWidth: selected ? 1.5 : 1)
             .overlay {
                 VStack(spacing: 1) {
-                    Text(name).font(.caption.weight(.medium))
+                    Text(name).font(.caption.weight(.semibold))
                     Text("\(inches.formatted(.number.precision(.fractionLength(0...1))))\"")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
