@@ -24,8 +24,8 @@ final class Desk {
     /// Left to right, as macOS arranges them.
     private(set) var screens: [Screen] = []
     /// The displays that sit side by side in macOS, left to right, each touching the next with rows in common:
-    /// the longest such chain, then the current one, so moving a stacked display never swaps a monitor out, then
-    /// the one with the most real (framebuffer) displays, so a monitor gets the cursor bridge over an iPad, then the
+    /// the longest such chain, then the one with the most real (framebuffer) displays, so a monitor gets the cursor
+    /// bridge over an iPad, then the current one, so moving a stacked display never reshuffles the row, then the
     /// one sharing the most edge, then the main display's. A display stacked above or below them is in `stacked`
     /// instead.
     var row: [Screen] { screens.filter { rowIDs.contains($0.id) } }
@@ -93,7 +93,7 @@ final class Desk {
         }
         let real = Gamma.reachable()
         let rank = { (c: (ids: Set<CGDirectDisplayID>, edge: CGFloat)) in
-            (c.ids.count, c.ids == current ? 1 : 0, c.ids.intersection(real).count, c.edge)
+            (c.ids.count, c.ids.intersection(real).count, c.ids == current ? 1 : 0, c.edge)
         }
         rowIDs = chains.max { rank($0) < rank($1) }?.ids ?? []
         let row = screens.filter { rowIDs.contains($0.id) }
