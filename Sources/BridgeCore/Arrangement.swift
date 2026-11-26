@@ -65,25 +65,30 @@ public enum Arrangement {
         return rows.filter { (-0.5...(d.frame.height + 0.5)).contains($0) }
     }
 
-    /// Where a display stacked above or below `host` sits against it: its left edge in mm from the host's left edge
-    /// (at the host's scale), and whether it is below. Only the macOS arrangement matters for these displays.
-    public static func stack(_ frame: CGRect, on host: Display) -> (leftMM: CGFloat, below: Bool) {
-        ((frame.minX - host.frame.minX) * host.mmPerPoint, frame.midY > host.frame.midY)
+    /// Where display `d`, stacked above or below `host`, sits against it: its left edge in mm from the host's left
+    /// edge, and whether it is below. An offset into the host is measured at the host's scale, an overhang past its
+    /// left edge at `d`'s own, so it touches the host on the canvas whenever it does in macOS. Only the macOS
+    /// arrangement matters for these displays.
+    public static func stack(_ d: Display, on host: Display) -> (leftMM: CGFloat, below: Bool) {
+        let points = d.frame.minX - host.frame.minX
+        return (points * (points >= 0 ? host.mmPerPoint : d.mmPerPoint), d.frame.midY > host.frame.midY)
     }
 
-    /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
-    /// its bottom or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they
-    /// reach into its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
+    /// The origin in global points that puts display `d` `leftMM` right of `host`'s left edge, touching its bottom
+    /// or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they reach into
+    /// its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
     public static func origin(
-        stacking size: CGSize, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
+        stacking d: Display, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
     ) -> CGPoint? {
+        let size = d.frame.size
         let y = below ? host.frame.maxY : host.frame.minY - size.height
         var lowest = host.frame.minX - size.width + 1, highest = host.frame.maxX - 1
         for o in others where o.minY < y + size.height && y < o.maxY {
             if o.midX > host.frame.midX { highest = min(highest, o.minX - size.width) } else { lowest = max(lowest, o.maxX) }
         }
         guard lowest <= highest else { return nil }
-        return CGPoint(x: min(max((host.frame.minX + leftMM / host.mmPerPoint).rounded(), lowest), highest), y: y)
+        let x = host.frame.minX + leftMM / (leftMM >= 0 ? host.mmPerPoint : d.mmPerPoint)
+        return CGPoint(x: min(max(x.rounded(), lowest), highest), y: y)
     }
 
     /// The display (index into `spans`, each a left edge and width) that a span from `left`, `width` wide, overlaps
