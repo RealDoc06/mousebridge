@@ -3,7 +3,6 @@ import Testing
 @testable import BridgeCore
 
 // Index 1 is the MSI on the bottom-aligned desk from LayoutTests.
-let bottomTop = msi.topMM
 
 @Test func dragSnapsToNearestEdgeWithinReach() {
     // 3 mm short of top-aligned snaps to top-aligned; without snapping it stays put.
@@ -23,14 +22,17 @@ let bottomTop = msi.topMM
     #expect(Arrangement.place(0, at: 42, in: [lenovo]) == 42)
 }
 
-@Test func guidesMarkAlignedEdges() {
-    #expect(Arrangement.guides([lenovo, msi]) == [lenovo.heightMM])
+@Test func guidesProjectOtherEdgesOntoEachDisplay() {
+    // Centered MSI: the Lenovo shows the MSI's top, center and bottom rows; the MSI only the Lenovo's center.
     var centered = msi
     centered.topMM = (lenovo.heightMM - msi.heightMM) / 2
-    #expect(Arrangement.guides([lenovo, centered]) == [lenovo.heightMM / 2])
-    var loose = msi
-    loose.topMM = bottomTop - 10
-    #expect(Arrangement.guides([lenovo, loose]).isEmpty)
+    let onLenovo = Arrangement.guides(on: 0, in: [lenovo, centered])
+    #expect(onLenovo.count == 3)
+    #expect(abs(onLenovo[1] - 720) < 0.001)
+    #expect(abs(onLenovo[0] - centered.topMM / lenovo.mmPerPoint) < 0.001)
+    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map { ($0 * 1000).rounded() / 1000 } == [540])
+    // Bottom-aligned: the shared bottom shows on both, at each display's last row.
+    #expect(Arrangement.guides(on: 1, in: [lenovo, msi]).last.map { abs($0 - 1080) < 0.001 } == true)
 }
 
 @Test func wideDisplaySwapsBeforeTheRowEnds() {

@@ -54,19 +54,15 @@ public enum Arrangement {
         return others
     }
 
-    /// Heights (mm) where a top, center or bottom edge of one display lines up with one of another,
-    /// within `tolerance`. Each shared height is listed once.
-    public static func guides(_ displays: [Display], tolerance: CGFloat = 0.5) -> [CGFloat] {
-        var found: [CGFloat] = []
-        for (i, a) in displays.enumerated() {
-            for b in displays[(i + 1)...] {
-                for la in levels(of: a.heightMM).map({ $0 + a.topMM }) {
-                    let aligned = levels(of: b.heightMM).contains { abs($0 + b.topMM - la) <= tolerance }
-                    if aligned, !found.contains(where: { abs($0 - la) <= tolerance }) { found.append(la) }
-                }
-            }
+    /// Rows (points from its top) of `displays[index]` that sit at the same physical height as the top, center or
+    /// bottom of another display. Drawn on the real screen, a row that lines up with that display's actual edge
+    /// across the bezel means the arrangement matches the desk. Rows past the display's own edges are left out.
+    public static func guides(on index: Int, in displays: [Display]) -> [CGFloat] {
+        let d = displays[index]
+        let rows = displays.indices.filter { $0 != index }.flatMap { j in
+            levels(of: displays[j].heightMM).map { ($0 + displays[j].topMM - d.topMM) / d.mmPerPoint }
         }
-        return found
+        return rows.filter { (-0.5...(d.frame.height + 0.5)).contains($0) }
     }
 
     /// Top, center and bottom of a display `height` tall, relative to its top.

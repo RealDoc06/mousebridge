@@ -60,15 +60,6 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if desk.row.count > 1 {
-                HStack {
-                    Text("Arrangement").font(.headline)
-                    Spacer()
-                    Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
-                        .foregroundStyle(desk.guides ? .yellow : .secondary)
-                        .help(desk.guides ? "Hide guides" : "Show guides")
-                }
-                .buttonStyle(.borderless)
-                .labelStyle(.iconOnly)
                 ArrangementView(
                     desk: desk,
                     names: Dictionary(monitors.all.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),

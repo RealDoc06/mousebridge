@@ -2,8 +2,9 @@ import BridgeCore
 import SwiftUI
 
 /// The side-by-side displays (`Desk.row`) at real scale, as on the desk. Dragging one up or down sets where it physically
-/// sits, which the cursor bridge maps crossings by. Dragging it past a neighbor reorders macOS's arrangement.
-/// With guides on, edges that line up get a yellow line and drags snap to them.
+/// sits, which the cursor bridge maps crossings by, and the arrows nudge the selected one a pixel at a time.
+/// Dragging one past a neighbor reorders macOS's arrangement. With guides on, drags snap to aligned edges and
+/// `GuideOverlay` draws the guides on the real displays.
 struct ArrangementView: View {
     let desk: Desk
     /// Label for each display, by display ID.
@@ -12,6 +13,10 @@ struct ArrangementView: View {
 
     /// Resets by itself when a drag ends or is cancelled, e.g. by the popup closing.
     @GestureState private var drag: Drag?
+    /// The display the arrows move: the last one tapped or dragged.
+    @State private var selected: CGDirectDisplayID?
+    /// Whether the popup is open. MenuBarExtra keeps this view alive while it's closed.
+    @State private var open = true
 
     private struct Drag: Equatable {
         let id: CGDirectDisplayID
@@ -22,6 +27,29 @@ struct ArrangementView: View {
     private static let snapPoints: CGFloat = 6
 
     var body: some View {
+        // Until one is picked, the arrows move the first display that isn't the main one.
+        let target = selected.flatMap { id in desk.row.first { $0.id == id } }?.id
+            ?? desk.row.first { $0.id != CGMainDisplayID() }?.id
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Arrangement").font(.headline)
+                Spacer()
+                Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
+                    .help("Move the selected display up a pixel")
+                Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
+                    .help("Move the selected display down a pixel")
+                Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+                    .foregroundStyle(desk.guides ? .yellow : .secondary)
+                    .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+            }
+            .buttonStyle(.borderless)
+            .labelStyle(.iconOnly)
+            .buttonRepeatBehavior(.enabled)
+            canvas(target: target)
+        }
+    }
+
+    private func canvas(target: CGDirectDisplayID?) -> some View {
         let scale = width / desk.row.map(\.display.widthMM).reduce(0, +)
         let placed = arranged(drag, scale: scale)
         let slots = lefts(placed.order)
@@ -29,39 +57,40 @@ struct ArrangementView: View {
         let bounds = Arrangement.bounds(desk.row.map(\.display))
         let originMM = bounds.lowerBound, heightMM = bounds.upperBound - bounds.lowerBound
 
-        ZStack(alignment: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             ForEach(Array(desk.row.enumerated()), id: \.element.id) { i, screen in
                 let d = placed.displays[i]
                 let dragged = drag?.id == screen.id
-                tile(d, name: names[screen.id] ?? "Display", dragged: dragged)
+                tile(d, name: names[screen.id] ?? "Display", dragged: dragged, selected: screen.id == target)
                     .frame(width: d.widthMM * scale, height: d.heightMM * scale)
                     .offset(x: (dragged ? placed.left : slots[i]) * scale, y: (d.topMM - originMM) * scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
+                    .onTapGesture { selected = screen.id }
                     .gesture(
                         DragGesture(minimumDistance: 1)
                             .updating($drag) { value, drag, _ in drag = Drag(id: screen.id, offset: value.translation) }
-                            .onEnded { commit(Drag(id: screen.id, offset: $0.translation), scale: scale) }
+                            .onEnded {
+                                selected = screen.id
+                                commit(Drag(id: screen.id, offset: $0.translation), scale: scale)
+                            }
                     )
-            }
-            if desk.guides {
-                ForEach(Arrangement.guides(placed.displays), id: \.self) { mm in
-                    Rectangle().fill(.yellow)
-                        .frame(width: width, height: 1)
-                        .offset(y: (mm - originMM) * scale - 0.5)
-                        .zIndex(2)
-                        .allowsHitTesting(false)
-                }
             }
         }
         .frame(width: width, height: heightMM * scale, alignment: .topLeading)
+        // The guides follow the displays as arranged, drag included, and leave with the popup.
+        .background(OnWindowVisibility { open = $0 })
+        .onChange(of: open && desk.guides ? placed.displays : nil, initial: true) { _, shown in
+            if let shown { GuideOverlay.show(desk.row.map(\.id), shown) } else { GuideOverlay.hide() }
+        }
+        .onDisappear { GuideOverlay.hide() }
     }
 
-    private func tile(_ d: Display, name: String, dragged: Bool) -> some View {
+    private func tile(_ d: Display, name: String, dragged: Bool, selected: Bool) -> some View {
         let inches = Double(hypot(d.widthMM, d.heightMM) / 25.4)
         return RoundedRectangle(cornerRadius: 4)
             .fill(dragged ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.12))
-            .strokeBorder(Color.primary.opacity(dragged ? 0.6 : 0.25))
+            .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(dragged ? 0.6 : 0.25), lineWidth: selected ? 1.5 : 1)
             .overlay {
                 VStack(spacing: 1) {
                     Text(name).font(.caption.weight(.medium))
@@ -108,6 +137,14 @@ struct ArrangementView: View {
             x += desk.row[j].display.widthMM
         }
         return lefts
+    }
+
+    /// Moves a display by `pixels` of its own screen, without snapping, so it can sit just off a guide.
+    private func nudge(_ id: CGDirectDisplayID, pixels: CGFloat) {
+        guard let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
+        let d = desk.row[i].display
+        let backing = NSScreen.screens.first { $0.displayID == id }?.backingScaleFactor ?? 1
+        desk.setTop(Arrangement.place(i, at: d.topMM + pixels * d.mmPerPoint / backing, in: desk.row.map(\.display)), of: id)
     }
 
     private func commit(_ drag: Drag, scale: CGFloat) {
