@@ -37,16 +37,16 @@ enum GuideOverlay {
             panels[id] = nil
         }
         for (i, id) in ids.enumerated() {
-            let rows = Arrangement.guides(on: i, in: displays).map { Line(at: $0.row, vertical: false, source: $0.source) }
+            let rows = Arrangement.guides(on: i, in: displays).map { Line($0, vertical: false) }
             let columns = stacked.enumerated().filter { $1.touching.contains(i) }.flatMap { k, s in
-                Arrangement.columns(on: displays[i], of: s.placed).map { Line(at: $0, vertical: true, source: ids.count + k) }
+                Arrangement.columns(on: displays[i], of: s.placed, source: ids.count + k).map { Line($0, vertical: true) }
             }
             draw(rows + columns, on: id, at: displays[i].frame)
         }
         // On the stacked display as it is now, where the edges of the displays it touches will fall once it's moved.
         for s in stacked {
             let columns = s.touching.flatMap { h in
-                Arrangement.columns(on: s.placed, of: displays[h]).map { Line(at: $0, vertical: true, source: h) }
+                Arrangement.columns(on: s.placed, of: displays[h], source: h).map { Line($0, vertical: true) }
             }
             draw(columns, on: s.id, at: s.frame)
         }
@@ -78,29 +78,41 @@ enum GuideOverlay {
     }
 }
 
-/// A guide line `at` points from the display's top (a row) or left (a column), in its source display's color.
+/// A guide drawn as a row or a column, in its source display's color; dashed when it marks a center.
 private struct Line: Equatable {
-    let at: CGFloat
+    let guide: Arrangement.Guide
     let vertical: Bool
-    let source: Int
+
+    init(_ guide: Arrangement.Guide, vertical: Bool) {
+        self.guide = guide
+        self.vertical = vertical
+    }
 }
 
-/// Full-length lines, snapped to device pixels and kept inside the edges.
+/// Full-length lines, snapped to device pixels and kept inside the edges. Center lines are dashed, so they read apart
+/// from edge lines.
 private final class GuideLinesView: NSView {
     var lines: [Line] = [] {
         didSet { if lines != oldValue { needsDisplay = true } }
     }
     private static let thickness: CGFloat = 2
+    private static let dash: CGFloat = 8, gap: CGFloat = 6
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         for line in lines {
-            GuideOverlay.color(line.source).setFill()
-            let rect = line.vertical
-                ? CGRect(x: min(max(line.at - Self.thickness / 2, 0), bounds.width - Self.thickness), y: 0, width: Self.thickness, height: bounds.height)
-                : CGRect(x: 0, y: min(max(line.at - Self.thickness / 2, 0), bounds.height - Self.thickness), width: bounds.width, height: Self.thickness)
-            backingAlignedRect(rect, options: .alignAllEdgesNearest).fill()
+            GuideOverlay.color(line.guide.source).setFill()
+            let length = line.vertical ? bounds.height : bounds.width
+            let across = min(max(line.guide.at - Self.thickness / 2, 0), (line.vertical ? bounds.width : bounds.height) - Self.thickness)
+            let step = line.guide.center ? Self.dash + Self.gap : length
+            for start in stride(from: 0, to: length, by: step) {
+                let along = min(line.guide.center ? Self.dash : length, length - start)
+                let rect = line.vertical
+                    ? CGRect(x: across, y: start, width: Self.thickness, height: along)
+                    : CGRect(x: start, y: across, width: along, height: Self.thickness)
+                backingAlignedRect(rect, options: .alignAllEdgesNearest).fill()
+            }
         }
     }
 }

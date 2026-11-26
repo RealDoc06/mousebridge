@@ -26,14 +26,15 @@ import Testing
     // Centered MSI: the Lenovo shows the MSI's top, center and bottom rows; the MSI only the Lenovo's center.
     var centered = msi
     centered.topMM = (lenovo.heightMM - msi.heightMM) / 2
-    let onLenovo = Arrangement.guides(on: 0, in: [lenovo, centered]).map(\.row)
+    let onLenovo = Arrangement.guides(on: 0, in: [lenovo, centered]).map(\.at)
     #expect(onLenovo.count == 3)
     #expect(abs(onLenovo[1] - 720) < 0.001)
     #expect(abs(onLenovo[0] - centered.topMM / lenovo.mmPerPoint) < 0.001)
-    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map { ($0.row * 1000).rounded() / 1000 } == [540])
+    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map { ($0.at * 1000).rounded() / 1000 } == [540])
+    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map(\.center) == [true])
     #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map(\.source) == [0])
     // Bottom-aligned: the shared bottom shows on both, at each display's last row.
-    #expect(Arrangement.guides(on: 1, in: [lenovo, msi]).last.map { abs($0.row - 1080) < 0.001 } == true)
+    #expect(Arrangement.guides(on: 1, in: [lenovo, msi]).last.map { abs($0.at - 1080) < 0.001 } == true)
 }
 
 @Test func wideDisplaySwapsBeforeTheRowEnds() {
@@ -104,10 +105,11 @@ import Testing
     var desk = lenovo
     desk.leftMM = 542
     let ipad = Display(frame: CGRect(x: 1017, y: 1440, width: 1543, height: 1157), widthMM: 265, leftMM: 642)
-    let onLenovo = Arrangement.columns(on: desk, of: ipad)
-    #expect(onLenovo.count == 3 && abs(onLenovo[0] - 100 / lenovo.mmPerPoint) < 0.001)
+    let onLenovo = Arrangement.columns(on: desk, of: ipad, source: 2)
+    #expect(onLenovo.count == 3 && abs(onLenovo[0].at - 100 / lenovo.mmPerPoint) < 0.001)
+    #expect(onLenovo.map(\.center) == [false, true, false])
     // On the iPad, only the Lenovo's center (301 mm in) falls on it, 201 mm in from the iPad's left edge.
-    #expect(Arrangement.columns(on: ipad, of: desk).map { ($0 * ipad.mmPerPoint).rounded() } == [201])
+    #expect(Arrangement.columns(on: ipad, of: desk, source: 1).map { ($0.at * ipad.mmPerPoint).rounded() } == [201])
 }
 
 @Test func rowMapDrawsEachColumnAtItsDisplaysScale() {
