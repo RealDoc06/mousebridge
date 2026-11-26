@@ -1,36 +1,46 @@
 import CoreGraphics
 
-/// One display: its frame in global points (top-left origin, as `CGDisplayBounds` returns) and its physical scale.
+/// One display: its frame in global points (top-left origin, as `CGDisplayBounds` returns), its physical scale,
+/// and where it sits on the desk.
 public struct Display: Sendable, Equatable {
     public let frame: CGRect
     /// Millimetres per point. Pixels are assumed square, so the width alone sets the scale for both axes.
     public let mmPerPoint: CGFloat
+    /// Physical top edge in mm, measured down an axis shared by all displays. Only differences matter.
+    public var topMM: CGFloat
 
-    public init(frame: CGRect, widthMM: CGFloat) {
+    public init(frame: CGRect, widthMM: CGFloat, topMM: CGFloat = 0) {
         self.frame = frame
         mmPerPoint = widthMM / frame.width
+        self.topMM = topMM
     }
 
-    var heightMM: CGFloat { frame.height * mmPerPoint }
+    public var widthMM: CGFloat { frame.width * mmPerPoint }
+    public var heightMM: CGFloat { frame.height * mmPerPoint }
 }
 
-/// How side-by-side displays line up physically on the desk.
+/// Preset ways side-by-side displays line up on the desk. Seeds `Display.topMM` for displays not yet arranged.
 public enum Alignment: String, Sendable, CaseIterable {
     case top, center, bottom
+
+    /// Top edge of a display `heightMM` tall, measured down from the top of one `tallestMM` tall.
+    public func top(heightMM: CGFloat, tallestMM: CGFloat) -> CGFloat {
+        switch self {
+        case .top: 0
+        case .center: (tallestMM - heightMM) / 2
+        case .bottom: tallestMM - heightMM
+        }
+    }
 }
 
 /// Remaps horizontal edge crossings so the cursor keeps its physical height,
 /// and so every point of a shared edge can cross (clamping where one display is taller).
 public struct Layout: Sendable {
     public let displays: [Display]
-    public let alignment: Alignment
-    private let tallestMM: CGFloat
     static let landingInset: CGFloat = 3
 
-    public init(displays: [Display], alignment: Alignment) {
+    public init(displays: [Display]) {
         self.displays = displays
-        self.alignment = alignment
-        tallestMM = displays.map(\.heightMM).max() ?? 0
     }
 
     /// Where the cursor should land for a move from `prev` to `next` (as macOS placed it, possibly clamped),
@@ -51,10 +61,10 @@ public struct Layout: Sendable {
         }
 
         let y = min(max(next.y, src.frame.minY), src.frame.maxY - 1)
-        let mm = top(of: src) + (y - src.frame.minY) * src.mmPerPoint
+        let mm = src.topMM + (y - src.frame.minY) * src.mmPerPoint
         guard let dst = neighbors.min(by: { gap(mm, $0) < gap(mm, $1) }) else { return nil }
 
-        let localMM = min(max(mm - top(of: dst), 0), dst.heightMM)
+        let localMM = min(max(mm - dst.topMM, 0), dst.heightMM)
         // Land a few points inside the destination so sensor jitter can't bounce the cursor straight back.
         return CGPoint(
             x: left ? dst.frame.maxX - 1 - Self.landingInset : dst.frame.minX + Self.landingInset,
@@ -73,18 +83,8 @@ public struct Layout: Sendable {
         }.min()
     }
 
-    /// Physical top edge of `d` in mm, measured down from the tallest display's top.
-    private func top(of d: Display) -> CGFloat {
-        switch alignment {
-        case .top: 0
-        case .center: (tallestMM - d.heightMM) / 2
-        case .bottom: tallestMM - d.heightMM
-        }
-    }
-
     /// Vertical distance in mm from `mm` to `d`'s physical span, 0 when inside it.
     private func gap(_ mm: CGFloat, _ d: Display) -> CGFloat {
-        let t = top(of: d)
-        return max(t - mm, mm - (t + d.heightMM), 0)
+        max(d.topMM - mm, mm - (d.topMM + d.heightMM), 0)
     }
 }

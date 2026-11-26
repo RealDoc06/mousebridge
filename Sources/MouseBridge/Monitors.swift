@@ -12,6 +12,7 @@ final class Monitor: Identifiable {
     var customName: String {
         didSet { UserDefaults.standard.set(customName, forKey: nameKey) }
     }
+    var name: String { customName.isEmpty ? defaultName : customName }
     let hdrSupported: Bool
     private(set) var brightness: Double
     /// nil when the display reports no volume control (no speakers).
@@ -21,7 +22,6 @@ final class Monitor: Identifiable {
     @ObservationIgnored private let ddc: DDC?
     @ObservationIgnored private let maxBrightness: UInt16
     @ObservationIgnored private let maxVolume: UInt16
-    /// Display IDs can change between boots, so names are keyed by vendor, model and serial.
     @ObservationIgnored private let nameKey: String
 
     /// Software-dimmed displays never go fully black.
@@ -30,7 +30,7 @@ final class Monitor: Identifiable {
     fileprivate init(_ probe: Probe, softwareBrightness: Double?) {
         id = probe.id
         defaultName = NSScreen.screens.first { $0.displayID == probe.id }?.localizedName ?? "Display \(probe.id)"
-        nameKey = "name.\(CGDisplayVendorNumber(probe.id))-\(CGDisplayModelNumber(probe.id))-\(CGDisplaySerialNumber(probe.id))"
+        nameKey = "name.\(persistentKey(probe.id))"
         customName = UserDefaults.standard.string(forKey: nameKey) ?? ""
         hdrSupported = HDR.isSupported(probe.id)
         hdr = HDR.isEnabled(probe.id)

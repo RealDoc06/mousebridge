@@ -1,5 +1,4 @@
 import AppKit
-import BridgeCore
 import ServiceManagement
 import Sparkle
 import SwiftUI
@@ -10,7 +9,7 @@ struct MouseBridgeApp: App {
 
     var body: some Scene {
         MenuBarExtra("MouseBridge", systemImage: "display.2") {
-            MenuView(monitors: app.monitors, tap: app.tap, updater: app.updater.updater)
+            MenuView(monitors: app.monitors, desk: app.desk, tap: app.tap, updater: app.updater.updater)
         }
         .menuBarExtraStyle(.window)
     }
@@ -19,16 +18,19 @@ struct MouseBridgeApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let monitors = Monitors()
+    let desk = Desk()
     let tap = EventTap()
     /// Sparkle checks the appcast hourly (SUScheduledCheckInterval) and shows its update popup.
     let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         tap.onBrightnessKey = { [monitors] up, fine in monitors.step(up: up, fine: fine) }
+        desk.onChange = { [tap] in tap.displays = $0 }
+        desk.reload()
         Task { await monitors.reload() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [self] _ in
             MainActor.assumeIsolated {
-                tap.rebuildLayout()
+                desk.reload()
                 Task { await monitors.reload() }
             }
         }
@@ -50,12 +52,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuView: View {
     let monitors: Monitors
+    @Bindable var desk: Desk
     @Bindable var tap: EventTap
     let updater: SPUUpdater
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if desk.screens.count > 1 {
+                HStack {
+                    Text("Arrangement").font(.headline)
+                    Spacer()
+                    Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+                        .foregroundStyle(desk.guides ? .yellow : .secondary)
+                        .help(desk.guides ? "Hide guides" : "Show guides")
+                }
+                .buttonStyle(.borderless)
+                .labelStyle(.iconOnly)
+                ArrangementView(
+                    desk: desk,
+                    names: Dictionary(monitors.all.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+                    width: Self.width - 2 * Self.padding
+                )
+                Divider()
+            }
             ForEach(monitors.all) { MonitorControls(monitor: $0) }
             Divider()
             if !tap.running {
@@ -68,12 +88,6 @@ struct MenuView: View {
                 }
             }
             Toggle("Cursor bridge", isOn: $tap.bridgeEnabled)
-            if tap.bridgeEnabled {
-                Picker("Level", selection: $tap.alignment) {
-                    ForEach(Alignment.allCases, id: \.self) { Text($0.rawValue.capitalized) }
-                }
-                .pickerStyle(.segmented)
-            }
             Toggle("Launch at login", isOn: $launchAtLogin)
                 .onChange(of: launchAtLogin) { _, on in
                     try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
@@ -87,10 +101,14 @@ struct MenuView: View {
             }
         }
         .toggleStyle(.switch)
-        .padding(14)
-        .frame(width: 280)
+        .padding(Self.padding)
+        .frame(width: Self.width)
+        .background { GeometryReader { FitWindow(height: $0.size.height) } }
         .onAppear { monitors.refreshHDR() }
     }
+
+    private static let width: CGFloat = 280
+    private static let padding: CGFloat = 14
 
     private func relaunch() {
         let task = Process()
@@ -118,7 +136,7 @@ private struct MonitorControls: View {
                         .onSubmit(commit)
                         .onExitCommand { self.draft = nil }
                 } else {
-                    Text(monitor.customName.isEmpty ? monitor.defaultName : monitor.customName)
+                    Text(monitor.name)
                 }
                 Spacer()
                 if draft == nil, !monitor.customName.isEmpty {
@@ -154,5 +172,30 @@ private struct MonitorControls: View {
     private func commit() {
         monitor.customName = draft?.trimmingCharacters(in: .whitespaces) ?? monitor.customName
         draft = nil
+    }
+}
+
+/// MenuBarExtra windows grow with their content but never shrink (seen on macOS 27): the smaller content is
+/// centered in the old frame, so the popup drops away from the menu bar and leaves a stale frame behind.
+/// Placed as a background, this sizes the window to the content's `height`, keeping its top edge.
+private struct FitWindow: NSViewRepresentable {
+    let height: CGFloat
+
+    func makeNSView(context: Context) -> FitView { FitView() }
+    func updateNSView(_ view: FitView, context: Context) {
+        view.height = height
+        view.fit()
+    }
+
+    final class FitView: NSView {
+        var height: CGFloat = 0
+
+        override func viewDidMoveToWindow() { fit() }
+
+        func fit() {
+            guard let window, height > 0, abs(window.frame.height - height) > 0.5 else { return }
+            let frame = window.frame
+            window.setFrame(CGRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height), display: true)
+        }
     }
 }
