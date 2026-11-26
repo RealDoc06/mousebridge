@@ -159,10 +159,10 @@ final class Desk {
         configure(origins)
     }
 
-    /// Moves a stacked display in macOS's arrangement to `origin` (global points), e.g. along or onto another
-    /// display's top or bottom edge.
+    /// Moves a display in macOS's arrangement to `origin` (global points): a stacked one along or onto another
+    /// display's edge or beside the row, or a row end onto its neighbor's top or bottom.
     func move(_ id: CGDirectDisplayID, to origin: CGPoint) {
-        guard stackedHosts[id] != nil else { return }
+        guard screens.contains(where: { $0.id == id }) else { return }
         configure([id: origin])
     }
 

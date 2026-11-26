@@ -86,8 +86,9 @@ enum Shade {
         }
     }
 
-    /// Above the menu bar, Dock and full screen apps, below the brightness HUD.
-    static let level = NSWindow.Level.screenSaver
+    /// Above the menu bar, Dock and full screen apps, below menus and the MenuBarExtra popup (`popUpMenu`), leaving
+    /// one level between for the brightness HUD and the guides.
+    static let level = NSWindow.Level(rawValue: NSWindow.Level.popUpMenu.rawValue - 2)
 
     private static func makePanel() -> NSPanel {
         let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)

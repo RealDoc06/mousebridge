@@ -26,13 +26,14 @@ import Testing
     // Centered MSI: the Lenovo shows the MSI's top, center and bottom rows; the MSI only the Lenovo's center.
     var centered = msi
     centered.topMM = (lenovo.heightMM - msi.heightMM) / 2
-    let onLenovo = Arrangement.guides(on: 0, in: [lenovo, centered])
+    let onLenovo = Arrangement.guides(on: 0, in: [lenovo, centered]).map(\.row)
     #expect(onLenovo.count == 3)
     #expect(abs(onLenovo[1] - 720) < 0.001)
     #expect(abs(onLenovo[0] - centered.topMM / lenovo.mmPerPoint) < 0.001)
-    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map { ($0 * 1000).rounded() / 1000 } == [540])
+    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map { ($0.row * 1000).rounded() / 1000 } == [540])
+    #expect(Arrangement.guides(on: 1, in: [lenovo, centered]).map(\.source) == [0])
     // Bottom-aligned: the shared bottom shows on both, at each display's last row.
-    #expect(Arrangement.guides(on: 1, in: [lenovo, msi]).last.map { abs($0 - 1080) < 0.001 } == true)
+    #expect(Arrangement.guides(on: 1, in: [lenovo, msi]).last.map { abs($0.row - 1080) < 0.001 } == true)
 }
 
 @Test func wideDisplaySwapsBeforeTheRowEnds() {
@@ -66,16 +67,16 @@ import Testing
 
 @Test func stackedDisplayRoundTripsThroughTheCanvas() {
     // An iPad (1543 x 1157 pt, 265 mm wide) below the Lenovo, hanging 219 pt past its right edge.
-    let ipad = Display(frame: CGRect(x: 1236, y: 1440, width: 1543, height: 1157), widthMM: 265)
-    let placed = Arrangement.stack(ipad, on: lenovo)
+    let frame = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
+    let placed = Arrangement.stack(frame, on: lenovo)
     #expect(placed.below)
-    #expect(Arrangement.origin(stacking: ipad, leftMM: placed.leftMM, below: true, on: lenovo) == ipad.frame.origin)
-    #expect(Arrangement.origin(stacking: ipad, leftMM: 0, below: false, on: lenovo) == CGPoint(x: 0, y: -1157))
-    // Hanging 1300 pt off the left at its own scale, so the 243 pt it shares still touches the Lenovo on the canvas.
-    let left = Display(frame: CGRect(x: -1300, y: 1440, width: 1543, height: 1157), widthMM: 265)
+    #expect(Arrangement.origin(stacking: frame.size, leftMM: placed.leftMM, below: true, on: lenovo) == frame.origin)
+    #expect(Arrangement.origin(stacking: frame.size, leftMM: 0, below: false, on: lenovo) == CGPoint(x: 0, y: -1157))
+    // Hanging off the left, at the Lenovo's scale like everything else, so drawn 1543 pt wide it shares 243 pt.
+    let left = CGRect(x: -1300, y: 1440, width: 1543, height: 1157)
     let hanging = Arrangement.stack(left, on: lenovo)
-    #expect(abs(hanging.leftMM + 265 - 243 * left.mmPerPoint) < 0.001)
-    #expect(Arrangement.origin(stacking: left, leftMM: hanging.leftMM, below: true, on: lenovo) == left.frame.origin)
+    #expect(abs(hanging.leftMM + 1543 * lenovo.mmPerPoint - 243 * lenovo.mmPerPoint) < 0.001)
+    #expect(Arrangement.origin(stacking: left.size, leftMM: hanging.leftMM, below: true, on: lenovo) == left.origin)
 }
 
 @Test func stackedDisplayLandsOnTheMostOverlapped() {
@@ -90,17 +91,24 @@ import Testing
 
 @Test func stackedDropStaysClearOfTheTallerNeighbor() {
     // An iPad dropped above the MSI straddling the seam would cover the Lenovo's top strip: it slides left to clear it.
-    let ipad = Display(frame: CGRect(x: 0, y: 0, width: 1543, height: 1157), widthMM: 265)
-    let origin = Arrangement.origin(stacking: ipad, leftMM: 400, below: false, on: msi, clearOf: [lenovo.frame])
+    let size = CGSize(width: 1543, height: 1157)
+    let origin = Arrangement.origin(stacking: size, leftMM: 400, below: false, on: msi, clearOf: [lenovo.frame])
     #expect(origin == CGPoint(x: -1543, y: 360 - 1157))
     // Dropped past the host's end with nothing in the way, it still keeps a column on the host.
-    #expect(Arrangement.origin(stacking: ipad, leftMM: 900, below: true, on: msi)?.x == -1)
+    #expect(Arrangement.origin(stacking: size, leftMM: 900, below: true, on: msi)?.x == -1)
 }
 
 @Test func stackedDropThatFitsNowhereIsRefused() {
     // A 1543 pt iPad above a 1280 pt display whose taller neighbors both reach into those rows.
     let host = Display(frame: CGRect(x: 0, y: 360, width: 1280, height: 720), widthMM: 300)
     let neighbors = [CGRect(x: -1000, y: 0, width: 1000, height: 1080), CGRect(x: 1280, y: 0, width: 1000, height: 1080)]
-    let ipad = Display(frame: CGRect(x: 0, y: 0, width: 1543, height: 1157), widthMM: 265)
-    #expect(Arrangement.origin(stacking: ipad, leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
+    let size = CGSize(width: 1543, height: 1157)
+    #expect(Arrangement.origin(stacking: size, leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
+}
+
+@Test func stackedGuidesMarkTheOtherDisplaysEdges() {
+    // An iPad below the Lenovo hanging past its right edge: each shows the other's edges that fall on it.
+    let ipad = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
+    #expect(Arrangement.columns(on: lenovo.frame, of: ipad) == [1236, 2007.5])
+    #expect(Arrangement.columns(on: ipad, of: lenovo.frame) == [44, 1324])
 }
