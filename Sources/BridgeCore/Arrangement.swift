@@ -79,16 +79,8 @@ public enum Arrangement {
         public let source: Int
     }
 
-    /// Where a display with `frame` (global points), stacked above or below `host`, sits against it: its left edge
-    /// in mm from the host's left edge, and whether it is below. It's measured at the host's scale, as macOS lines
-    /// the two up in points, so it's drawn the size its resolution makes it next to the host and touches it exactly
-    /// where the cursor crosses. Only the macOS arrangement matters for these displays.
-    public static func stack(_ frame: CGRect, on host: Display) -> (leftMM: CGFloat, below: Bool) {
-        ((frame.minX - host.frame.minX) * host.mmPerPoint, frame.midY > host.frame.midY)
-    }
-
     /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
-    /// its bottom or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they
+    /// its bottom or top. It slides clear of `others` (the host's row neighbors) where they
     /// reach into its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
     public static func origin(
         stacking size: CGSize, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
@@ -123,3 +115,29 @@ public enum Arrangement {
     /// Top, center and bottom of a display `height` tall, relative to its top.
     private static func levels(of height: CGFloat) -> [CGFloat] { [0, height / 2, height] }
 }
+
+/// Maps global x (points) along the row to canvas mm and back, through whichever row display holds it, at that
+/// display's scale. A display stacked across a seam is then drawn over exactly the columns of each display it
+/// touches: where the cursor crosses between them in macOS. Past the row's ends it carries on at the end display's
+/// scale.
+public struct RowMap: Sendable {
+    private let spans: [(frame: CGRect, left: CGFloat, mmPerPoint: CGFloat)]
+
+    /// The row's displays, each with its left edge on the canvas (mm), in any order.
+    public init(_ displays: [(display: Display, left: CGFloat)]) {
+        spans = displays.map { ($0.display.frame, $0.left, $0.display.mmPerPoint) }
+    }
+
+    public func mm(_ x: CGFloat) -> CGFloat {
+        let byX = spans.sorted { $0.frame.minX < $1.frame.minX }
+        guard let s = byX.first(where: { x < $0.frame.maxX }) ?? byX.last else { return 0 }
+        return s.left + (x - s.frame.minX) * s.mmPerPoint
+    }
+
+    public func x(_ mm: CGFloat) -> CGFloat {
+        let byLeft = spans.sorted { $0.left < $1.left }
+        guard let s = byLeft.first(where: { mm < $0.left + $0.frame.width * $0.mmPerPoint }) ?? byLeft.last else { return 0 }
+        return s.frame.minX + (mm - s.left) / s.mmPerPoint
+    }
+}
+
