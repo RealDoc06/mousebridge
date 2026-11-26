@@ -125,7 +125,7 @@ import Testing
     // at the Lenovo's scale alone it would sit entirely left of it.
     let left = Arrangement.defaultLeft(of: CGRect(x: -1300, y: 1440, width: 1543, height: 1157), widthMM: 265, on: lenovo)
     #expect(abs(left + 265 - 243 * lenovo.mmPerPoint) < 0.001)
-    // Under it, it's simply where macOS has it at the Lenovo's scale.
+    // Under it, it's centered where macOS centers it, at the Lenovo's scale.
     let under = Arrangement.defaultLeft(of: CGRect(x: 1017, y: 1440, width: 1543, height: 1157), widthMM: 265, on: lenovo)
-    #expect(abs(under - 1017 * lenovo.mmPerPoint) < 0.001)
+    #expect(abs(under - (1788.5 * lenovo.mmPerPoint - 132.5)) < 0.001)
 }

@@ -122,7 +122,9 @@ public struct Layout: Sendable {
         guard !to.isEmpty, let edge = edge(of: from, at: next, down: down),
               // A crossing macOS made onto some other display is left alone.
               from.frame.contains(next) || to.contains(where: { $0.frame.contains(next) }) else { return nil }
-        if let dst = to.first(where: { $0.spans(edge.mm) }) { return land(on: dst, at: edge.mm, down: down) }
+        // Where more than one is in front, the one macOS entered.
+        let front = to.filter { $0.spans(edge.mm) }
+        if let dst = front.first(where: { $0.frame.contains(next) }) ?? front.first { return land(on: dst, at: edge.mm, down: down) }
         // Nothing physically there: keep the cursor where it was, even where macOS moved it across.
         return to.contains { $0.frame.contains(next) } ? CGPoint(x: edge.x, y: down ? from.frame.maxY - 1 : from.frame.minY) : nil
     }

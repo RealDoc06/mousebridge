@@ -80,13 +80,15 @@ public enum Arrangement {
         public let source: Int
     }
 
-    /// Where a stacked display sits along the desk before it's placed by hand, as an offset (mm) from `host`'s left
-    /// edge: where macOS has it (`frame`), at the host's scale, but overlapping the host physically by as much as it
-    /// does in macOS (up to its own width), so the cursor bridge never shuts off a crossing macOS has.
+    /// Where a stacked display sits along the desk before it's placed by hand, as an offset (mm) of its left edge from
+    /// `host`'s: centered where macOS centers it (`frame`), at the host's scale, as a drop places it in macOS, but
+    /// overlapping the host physically by as much as it does in macOS (up to its own width), so the cursor bridge
+    /// never shuts off a crossing with its host that macOS has.
     public static func defaultLeft(of frame: CGRect, widthMM: CGFloat, on host: Display) -> CGFloat {
         let shared = (min(frame.maxX, host.frame.maxX) - max(frame.minX, host.frame.minX)) * host.mmPerPoint
         let overlap = min(max(shared, 0), widthMM)
-        return min(max((frame.minX - host.frame.minX) * host.mmPerPoint, overlap - widthMM), host.widthMM - overlap)
+        let centered = (frame.midX - host.frame.minX) * host.mmPerPoint - widthMM / 2
+        return min(max(centered, overlap - widthMM), host.widthMM - overlap)
     }
 
     /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching

@@ -157,3 +157,15 @@ private func stackedDesk(below: Bool = true) -> (layout: Layout, ipad: Display) 
     #expect(try #require(up(450)).x < 0) // onto the MSI
     #expect(try #require(up(600)).x >= 0) // onto the Lenovo
 }
+
+@Test func crossingPrefersTheStackedDisplayMacOSEntered() throws {
+    // A laptop and an iPad below the Lenovo whose desk spans overlap; macOS put the cursor on the iPad.
+    var m = msi, l = lenovo
+    l.leftMM = m.widthMM
+    let laptop = Display(frame: CGRect(x: 0, y: 1440, width: 1000, height: 600), widthMM: 300, leftMM: l.leftMM)
+    let ipad = Display(frame: CGRect(x: 1100, y: 1440, width: 1543, height: 1157), widthMM: 265, leftMM: l.leftMM + 200)
+    let layout = Layout(displays: [l, m], row: [m, l], stacked: [.init(laptop, below: true), .init(ipad, below: true)])
+    let x = 250 / lenovo.mmPerPoint // 250 mm along the Lenovo: in front of both
+    let target = try #require(layout.remap(from: CGPoint(x: x, y: 1438), to: CGPoint(x: 1101, y: 1442), delta: CGVector(dx: 0, dy: 4)))
+    #expect(ipad.frame.contains(target))
+}
