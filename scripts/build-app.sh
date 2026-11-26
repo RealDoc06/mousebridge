@@ -9,8 +9,11 @@ VERSION="${1:-0.0.0}"
 BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
 SIGN_ID="${SIGN_ID:-Developer ID Application}"
 APP=build/MouseBridge.app
+MIN_MACOS=14.0 # matches Package.swift
 
-swift build -c release
+# SwiftPM records the deployment target as the binary's SDK version, and AppKit then draws pre-macOS 26 controls
+# (no Liquid Glass). The linker is given the real SDK version instead.
+swift build -c release -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$(xcrun --show-sdk-version)"
 BIN="$(swift build -c release --show-bin-path)"
 
 rm -rf "$APP"
@@ -29,7 +32,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
   <key>LSUIElement</key><true/>
   <key>SUFeedURL</key><string>https://github.com/RealDoc06/mousebridge/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key><string>aHsE+AwlsD0JXOKBehtZHizVb+sjWmuWIuQrUCR25XM=</string>
