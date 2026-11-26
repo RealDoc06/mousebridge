@@ -4,7 +4,9 @@ import SwiftUI
 /// The side-by-side displays (`Desk.row`) at real scale, as on the desk. Dragging one up or down sets where it physically
 /// sits, which the cursor bridge maps crossings by, and the arrows nudge the selected one a pixel at a time.
 /// Dragging one past a neighbor reorders macOS's arrangement. With guides on, drags snap to aligned edges and
-/// `GuideOverlay` draws the guides on the real displays.
+/// `GuideOverlay` draws the guides on the real displays. Displays stacked above or below the row (`Desk.stacked`)
+/// sit against the one they touch, and dragging one moves it along that edge, onto another display, or to the
+/// other side, in macOS's arrangement only.
 struct ArrangementView: View {
     let desk: Desk
     /// Label for each display, by display ID.
@@ -25,6 +27,8 @@ struct ArrangementView: View {
 
     /// Snap reach in points on screen, so it feels the same at any scale.
     private static let snapPoints: CGFloat = 6
+    /// Tallest the canvas gets, in points.
+    private static let maxHeight: CGFloat = 240
 
     var body: some View {
         // Until one is picked, the arrows move the first display that isn't the main one.
@@ -33,31 +37,52 @@ struct ArrangementView: View {
         Panel {
             Text("Arrangement")
             Spacer()
-            Group {
-                Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
-                    .help("Move the selected display up a pixel")
-                Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
-                    .help("Move the selected display down a pixel")
-            }
-            .buttonRepeatBehavior(.enabled)
-            .foregroundStyle(.secondary)
-            .fontWeight(.regular)
-            Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
-                .foregroundStyle(desk.guides ? .yellow : .secondary)
-                .help(desk.guides ? "Hide guides" : "Show guides on the displays")
-                .fontWeight(.regular)
+            // A display alone in the row has nothing to nudge against or line up with.
+            if desk.row.count > 1 { controls(target: target) }
         } content: {
             canvas(target: target)
         }
     }
 
+    /// The arrows that nudge the selected display a pixel, and the guides toggle.
+    @ViewBuilder private func controls(target: CGDirectDisplayID?) -> some View {
+        Group {
+            Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
+                .help("Move the selected display up a pixel")
+            Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
+                .help("Move the selected display down a pixel")
+        }
+        .buttonRepeatBehavior(.enabled)
+        .foregroundStyle(.secondary)
+        .fontWeight(.regular)
+        Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+            .foregroundStyle(desk.guides ? .yellow : .secondary)
+            .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+            .fontWeight(.regular)
+    }
+
     private func canvas(target: CGDirectDisplayID?) -> some View {
-        let scale = width / desk.row.map(\.display.widthMM).reduce(0, +)
+        let row = desk.row.map(\.display), stacked = desk.stacked
+        let rowWidth = row.map(\.widthMM).reduce(0, +)
+        // Room for stacked displays hanging past their host's sides, wherever the host moves.
+        let overhangs = stacked.map { s in
+            let left = Arrangement.stack(s.screen.display, on: row[s.host]).leftMM
+            return (left: -left, right: left + s.screen.display.widthMM - row[s.host].widthMM)
+        }
+        let padLeft = overhangs.map(\.left).reduce(0, max), padRight = overhangs.map(\.right).reduce(0, max)
+        let span = -padLeft...(rowWidth + padRight)
+        // Framed on the saved arrangement with room for any drag, so it holds still while one moves. Stacked
+        // displays get room above and below, since one can be dragged to either side.
+        let bounds = Arrangement.bounds(row)
+        let tallest = stacked.map(\.screen.display.heightMM).max() ?? 0
+        let originMM = bounds.lowerBound - tallest, heightMM = bounds.upperBound - bounds.lowerBound + 2 * tallest
+        // As wide as the panel, but no taller than `maxHeight` (a laptop with an iPad below would push the menu off
+        // screen), centered when that makes it narrower.
+        let scale = min(width / (span.upperBound - span.lowerBound), Self.maxHeight / heightMM)
+        let inset = (width - (span.upperBound - span.lowerBound) * scale) / 2 + padLeft * scale
         let placed = arranged(drag, scale: scale)
         let slots = lefts(placed.order)
-        // Framed on the saved arrangement with room for any drag, so it holds still while one moves.
-        let bounds = Arrangement.bounds(desk.row.map(\.display))
-        let originMM = bounds.lowerBound, heightMM = bounds.upperBound - bounds.lowerBound
+        let rowLefts = desk.row.indices.map { drag?.id == desk.row[$0].id ? placed.left : slots[$0] }
 
         return ZStack(alignment: .topLeading) {
             ForEach(Array(desk.row.enumerated()), id: \.element.id) { i, screen in
@@ -65,7 +90,7 @@ struct ArrangementView: View {
                 let dragged = drag?.id == screen.id
                 tile(d, name: names[screen.id] ?? "Display", dragged: dragged, selected: screen.id == target)
                     .frame(width: d.widthMM * scale, height: d.heightMM * scale)
-                    .offset(x: (dragged ? placed.left : slots[i]) * scale, y: (d.topMM - originMM) * scale)
+                    .offset(x: inset + rowLefts[i] * scale, y: (d.topMM - originMM) * scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
                     .onTapGesture { selected = screen.id }
@@ -78,11 +103,29 @@ struct ArrangementView: View {
                             }
                     )
             }
+            ForEach(stacked, id: \.screen.id) { s in
+                let d = s.screen.display
+                let dragged = drag?.id == s.screen.id
+                let p = place(s, offset: dragged ? drag?.offset : nil, row: placed.displays, lefts: rowLefts, span: span, scale: scale)
+                tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false)
+                    .frame(width: d.widthMM * scale, height: d.heightMM * scale)
+                    .offset(x: inset + p.left * scale, y: (p.top - originMM) * scale)
+                    .zIndex(dragged ? 1 : 0)
+                    .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .updating($drag) { value, drag, _ in drag = Drag(id: s.screen.id, offset: value.translation) }
+                            .onEnded {
+                                let p = place(s, offset: $0.translation, row: placed.displays, lefts: rowLefts, span: span, scale: scale)
+                                if p.frame.origin != d.frame.origin { desk.move(s.screen.id, to: p.frame.origin) }
+                            }
+                    )
+            }
         }
         .frame(width: width, height: heightMM * scale, alignment: .topLeading)
         // The guides follow the displays as arranged, drag included, and leave with the popup.
         .background(OnWindowVisibility { open = $0 })
-        .onChange(of: open && desk.guides ? placed.displays : nil, initial: true) { _, shown in
+        .onChange(of: open && desk.guides && row.count > 1 ? placed.displays : nil, initial: true) { _, shown in
             if let shown { GuideOverlay.show(desk.row.map(\.id), shown) } else { GuideOverlay.hide() }
         }
         .onDisappear { GuideOverlay.hide() }
@@ -117,7 +160,8 @@ struct ArrangementView: View {
         // a point of level, rather than snapping the top to a guide.
         let dx = abs(drag.offset.width), dy = abs(drag.offset.height)
         let sideways = desk.canReorder && dy < Self.snapPoints && dx > dy
-        if dy >= 1, !sideways {
+        // A display alone in the row has nothing to line up with, so it doesn't move up or down.
+        if dy >= 1, !sideways, displays.count > 1 {
             displays[i].topMM = Arrangement.place(
                 i, at: displays[i].topMM + drag.offset.height / scale, in: displays,
                 snapMM: desk.guides ? Self.snapPoints / scale : nil
@@ -128,6 +172,49 @@ struct ArrangementView: View {
         let widths = displays.map(\.widthMM)
         let left = min(max(lefts(identity)[i] + drag.offset.width / scale, 0), widths.reduce(0, +) - widths[i])
         return (displays, Arrangement.order(widths: widths, dragging: i, toLeft: left), left)
+    }
+
+    /// A stacked display as drawn, in mm with the row starting at 0, and its frame in macOS (global points).
+    private struct Placement {
+        let left: CGFloat
+        let top: CGFloat
+        let frame: CGRect
+    }
+
+    /// Where a stacked display sits against its host or, dragged by `offset`, where it lands: along the row (kept
+    /// over it, or where it already hangs, and within the canvas `span`), against the display it overlaps most, on
+    /// the side its center is on, clear of that display's neighbors. It's drawn from the macOS frame that results,
+    /// as the menu shows it once applied.
+    private func place(
+        _ s: Desk.Stacked, offset: CGSize?, row: [Display], lefts: [CGFloat], span: ClosedRange<CGFloat>, scale: CGFloat
+    ) -> Placement {
+        let d = s.screen.display
+        let top = { (h: Int, below: Bool) in below ? row[h].topMM + row[h].heightMM : row[h].topMM - d.heightMM }
+        let base = Arrangement.stack(d, on: row[s.host])
+        let left = lefts[s.host] + base.leftMM
+        let unmoved = Placement(left: left, top: top(s.host, base.below), frame: d.frame)
+        guard let offset else { return unmoved }
+        let free = row.map(\.widthMM).reduce(0, +) - d.widthMM
+        let moved = min(
+            max(left + offset.width / scale, span.lowerBound, min(0, free, left)),
+            span.upperBound - d.widthMM, max(0, free, left)
+        )
+        // A drag that's barely sideways keeps its host; mm and points can disagree on which it overlaps most.
+        let h = abs(offset.width) < Self.snapPoints ? s.host
+            : Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
+        let below = top(s.host, base.below) + d.heightMM / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
+        // Where it can't fit, it stays where it was.
+        guard let origin = Arrangement.origin(
+            stacking: d, leftMM: moved - lefts[h], below: below, on: row[h],
+            clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
+        ) else { return unmoved }
+        let frame = CGRect(origin: origin, size: d.frame.size)
+        // At a different scale in points, the frame can sit mostly on a neighbor of `h`, which it then follows.
+        let host = Arrangement.host(of: frame, among: row.map(\.frame)) ?? h
+        let landed = Arrangement.stack(Display(frame: frame, widthMM: d.widthMM), on: row[host])
+        let placed = Placement(left: lefts[host] + landed.leftMM, top: top(host, landed.below), frame: frame)
+        // Sliding clear of a neighbor can push it off the canvas, which counts as not fitting too.
+        return span.contains(placed.left + 0.5) && span.contains(placed.left + d.widthMM - 0.5) ? placed : unmoved
     }
 
     /// Left edge (mm) of each display when laid out in `order`, indexed like `desk.row`.
@@ -142,8 +229,9 @@ struct ArrangementView: View {
     }
 
     /// Moves a display by `pixels` of its panel, without snapping, so it can sit just off a guide.
+    /// A display alone in the row has nothing to line up with, so it stays put.
     private func nudge(_ id: CGDirectDisplayID, pixels: CGFloat) {
-        guard let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
+        guard desk.row.count > 1, let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
         let d = desk.row[i].display
         let top = Arrangement.place(i, at: d.topMM + pixels * d.widthMM / CGFloat(nativePixelWidth(id)), in: desk.row.map(\.display))
         if top != d.topMM { desk.setTop(top, of: id) }

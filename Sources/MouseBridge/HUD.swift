@@ -6,7 +6,7 @@ import SwiftUI
 enum HUD {
     private static let panel: NSPanel = {
         let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        panel.level = .statusBar
+        panel.level = Shade.level + 1
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.ignoresMouseEvents = true

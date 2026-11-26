@@ -2,7 +2,8 @@ import AppKit
 import Observation
 
 /// One connected display and the controls it actually supports.
-/// Brightness goes over DDC when the display answers, otherwise through gamma dimming.
+/// Brightness goes over DDC when the display answers, otherwise through gamma dimming, or a `Shade` on virtual
+/// displays that gamma doesn't reach.
 @MainActor @Observable
 final class Monitor: Identifiable {
     let id: CGDirectDisplayID
@@ -14,10 +15,13 @@ final class Monitor: Identifiable {
     }
     var name: String { customName.isEmpty ? defaultName : customName }
     let hdrSupported: Bool
+    let dimming: Dimming
     private(set) var brightness: Double
     /// nil when the display reports no volume control (no speakers).
     private(set) var volume: Double?
     private(set) var hdr: Bool
+
+    enum Dimming { case ddc, gamma, shade }
 
     @ObservationIgnored private let ddc: DDC?
     @ObservationIgnored private let maxBrightness: UInt16
@@ -39,15 +43,16 @@ final class Monitor: Identifiable {
         maxBrightness = ddcBrightness?.max ?? 100
         maxVolume = probe.volume?.max ?? 100
         volume = probe.volume.map { Double($0.value) / Double(max($0.max, 1)) }
+        // A mirror has the bounds of the display it mirrors, which a shade would cover instead.
+        let mirror = CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay
+        dimming = ddcBrightness != nil ? .ddc : probe.virtual && !mirror ? .shade : .gamma
         if let ddcBrightness {
             brightness = Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1))
         } else {
             brightness = softwareBrightness ?? 1
-            Gamma.dim(id, to: brightness)
+            dim()
         }
     }
-
-    var usesDDC: Bool { ddc != nil }
 
     func setBrightness(_ value: Double) {
         if let ddc {
@@ -55,8 +60,13 @@ final class Monitor: Identifiable {
             ddc.set(.brightness, UInt16((brightness * Double(maxBrightness)).rounded()))
         } else {
             brightness = min(max(value, Self.minSoftwareBrightness), 1)
-            Gamma.dim(id, to: brightness)
+            dim()
         }
+    }
+
+    /// Applies `brightness` in software.
+    private func dim() {
+        if dimming == .shade { Shade.dim(id, to: brightness) } else { Gamma.dim(id, to: brightness) }
     }
 
     func setVolume(_ value: Double) {
@@ -80,26 +90,41 @@ private struct Probe: Sendable {
     let ddc: DDC?
     let brightness: (value: UInt16, max: UInt16)?
     let volume: (value: UInt16, max: UInt16)?
+    /// No framebuffer behind it, so gamma can't dim it.
+    let virtual: Bool
 }
 
 /// All connected displays. Reloads on display changes and handles the brightness keys.
 @MainActor @Observable
 final class Monitors {
     private(set) var all: [Monitor] = []
+    /// Counts reloads, so one superseded while it waits or probes is dropped.
+    @ObservationIgnored private var generation = 0
 
-    /// Re-probes every display. DDC reads take tens of milliseconds each, so they run in the background.
-    func reload() async {
+    /// Re-probes every display after `settle`. DDC reads take tens of milliseconds each, so they run in the
+    /// background. Right after a display change monitors often don't answer DDC yet and macOS resets gamma a moment
+    /// later, so changes settle first. That also folds a burst of change notifications into one probe.
+    func reload(settle: Duration = .zero) async {
+        generation += 1
+        let current = generation
+        try? await Task.sleep(for: settle)
+        guard current == generation else { return }
         let probes = await Task.detached {
-            let channels = DDC.discover()
+            let channels = DDC.discover(), reachable = Gamma.reachable()
             return activeDisplays().map { id in
                 let ddc = channels[id]
                 let brightness = ddc?.get(.brightness)
-                return Probe(id: id, ddc: ddc, brightness: brightness, volume: brightness == nil ? nil : ddc?.get(.volume))
+                return Probe(
+                    id: id, ddc: ddc, brightness: brightness, volume: brightness == nil ? nil : ddc?.get(.volume),
+                    virtual: !reachable.contains(id)
+                )
             }
         }.value
+        guard current == generation else { return }
         // Gamma resets on display changes, so software-dimmed levels are carried over and reapplied.
-        let previous = Dictionary(all.filter { !$0.usesDDC }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
+        let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id]) }
+        Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
     }
 
     /// Brightness key: steps the display under the cursor by 1/16, or 1/64 with Option+Shift.

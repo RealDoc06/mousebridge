@@ -50,7 +50,9 @@ public struct Layout: Sendable {
         let jumped = hypot(next.x - prev.x, next.y - prev.y) > hypot(delta.dx, delta.dy) + 100
         let prev = jumped ? CGPoint(x: next.x - delta.dx, y: next.y - delta.dy) : prev
         let dx = delta.dx
-        guard let src = displays.first(where: { $0.frame.contains(prev) }) else { return nil }
+        guard let src = displays.first(where: { $0.frame.contains(prev) }),
+              // A crossing macOS put onto a display left out of `displays` (one stacked above or below) is left alone.
+              displays.contains(where: { $0.frame.contains(next) }) else { return nil }
         let left: Bool
         if dx != 0 { left = dx < 0 } else if next.x != prev.x { left = next.x < prev.x } else { return nil }
 
@@ -85,6 +87,11 @@ public struct Layout: Sendable {
     /// A display stacked above or below `b` with no rows beside `a` doesn't count.
     public static func borders(_ a: CGRect, _ b: CGRect) -> Bool {
         abs(b.minX - a.maxX) < 1 && a.minY < b.maxY && b.minY < a.maxY
+    }
+
+    /// True when `b` sits directly below `a` in global points with columns in common: an edge macOS itself crosses.
+    public static func stacks(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(b.minY - a.maxY) < 1 && a.minX < b.maxX && b.minX < a.maxX
     }
 
     /// Vertical distance in mm from `mm` to `d`'s physical span, 0 when inside it.

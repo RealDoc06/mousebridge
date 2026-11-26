@@ -63,3 +63,44 @@ import Testing
     low.topMM = 200
     #expect(Arrangement.place(1, at: 200, in: [lenovo, low]) == 200)
 }
+
+@Test func stackedDisplayRoundTripsThroughTheCanvas() {
+    // An iPad (1543 x 1157 pt, 265 mm wide) below the Lenovo, hanging 219 pt past its right edge.
+    let ipad = Display(frame: CGRect(x: 1236, y: 1440, width: 1543, height: 1157), widthMM: 265)
+    let placed = Arrangement.stack(ipad, on: lenovo)
+    #expect(placed.below)
+    #expect(Arrangement.origin(stacking: ipad, leftMM: placed.leftMM, below: true, on: lenovo) == ipad.frame.origin)
+    #expect(Arrangement.origin(stacking: ipad, leftMM: 0, below: false, on: lenovo) == CGPoint(x: 0, y: -1157))
+    // Hanging 1300 pt off the left at its own scale, so the 243 pt it shares still touches the Lenovo on the canvas.
+    let left = Display(frame: CGRect(x: -1300, y: 1440, width: 1543, height: 1157), widthMM: 265)
+    let hanging = Arrangement.stack(left, on: lenovo)
+    #expect(abs(hanging.leftMM + 265 - 243 * left.mmPerPoint) < 0.001)
+    #expect(Arrangement.origin(stacking: left, leftMM: hanging.leftMM, below: true, on: lenovo) == left.frame.origin)
+}
+
+@Test func stackedDisplayLandsOnTheMostOverlapped() {
+    let row: [(left: CGFloat, width: CGFloat)] = [(0, 542), (542, 602)]
+    #expect(Arrangement.host(left: 420, width: 265, in: row) == 1)
+    #expect(Arrangement.host(left: 300, width: 265, in: row) == 0)
+    // In points, an iPad below both shares more columns with the Lenovo; one beside the row touches neither.
+    let frames = [msi.frame, CGRect(x: 0, y: 360, width: 2560, height: 1080)]
+    #expect(Arrangement.host(of: CGRect(x: -500, y: 1440, width: 1543, height: 1157), among: frames) == 1)
+    #expect(Arrangement.host(of: CGRect(x: 2560, y: 360, width: 1543, height: 1157), among: frames) == nil)
+}
+
+@Test func stackedDropStaysClearOfTheTallerNeighbor() {
+    // An iPad dropped above the MSI straddling the seam would cover the Lenovo's top strip: it slides left to clear it.
+    let ipad = Display(frame: CGRect(x: 0, y: 0, width: 1543, height: 1157), widthMM: 265)
+    let origin = Arrangement.origin(stacking: ipad, leftMM: 400, below: false, on: msi, clearOf: [lenovo.frame])
+    #expect(origin == CGPoint(x: -1543, y: 360 - 1157))
+    // Dropped past the host's end with nothing in the way, it still keeps a column on the host.
+    #expect(Arrangement.origin(stacking: ipad, leftMM: 900, below: true, on: msi)?.x == -1)
+}
+
+@Test func stackedDropThatFitsNowhereIsRefused() {
+    // A 1543 pt iPad above a 1280 pt display whose taller neighbors both reach into those rows.
+    let host = Display(frame: CGRect(x: 0, y: 360, width: 1280, height: 720), widthMM: 300)
+    let neighbors = [CGRect(x: -1000, y: 0, width: 1000, height: 1080), CGRect(x: 1280, y: 0, width: 1000, height: 1080)]
+    let ipad = Display(frame: CGRect(x: 0, y: 0, width: 1543, height: 1157), widthMM: 265)
+    #expect(Arrangement.origin(stacking: ipad, leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
+}

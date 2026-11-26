@@ -65,6 +65,49 @@ public enum Arrangement {
         return rows.filter { (-0.5...(d.frame.height + 0.5)).contains($0) }
     }
 
+    /// Where display `d`, stacked above or below `host`, sits against it: its left edge in mm from the host's left
+    /// edge, and whether it is below. An offset into the host is measured at the host's scale, an overhang past its
+    /// left edge at `d`'s own, so it touches the host on the canvas whenever it does in macOS. Only the macOS
+    /// arrangement matters for these displays.
+    public static func stack(_ d: Display, on host: Display) -> (leftMM: CGFloat, below: Bool) {
+        let points = d.frame.minX - host.frame.minX
+        return (points * (points >= 0 ? host.mmPerPoint : d.mmPerPoint), d.frame.midY > host.frame.midY)
+    }
+
+    /// The origin in global points that puts display `d` `leftMM` right of `host`'s left edge, touching its bottom
+    /// or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they reach into
+    /// its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
+    public static func origin(
+        stacking d: Display, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
+    ) -> CGPoint? {
+        let size = d.frame.size
+        let y = below ? host.frame.maxY : host.frame.minY - size.height
+        var lowest = host.frame.minX - size.width + 1, highest = host.frame.maxX - 1
+        for o in others where o.minY < y + size.height && y < o.maxY {
+            if o.midX > host.frame.midX { highest = min(highest, o.minX - size.width) } else { lowest = max(lowest, o.maxX) }
+        }
+        guard lowest <= highest else { return nil }
+        let x = host.frame.minX + leftMM / (leftMM >= 0 ? host.mmPerPoint : d.mmPerPoint)
+        return CGPoint(x: min(max(x.rounded(), lowest), highest), y: y)
+    }
+
+    /// The display (index into `spans`, each a left edge and width) that a span from `left`, `width` wide, overlaps
+    /// the most: the one a dragged stacked display is dropped against. `host(of:among:)` then settles which display
+    /// the resulting frame sits on.
+    public static func host(left: CGFloat, width: CGFloat, in spans: [(left: CGFloat, width: CGFloat)]) -> Int? {
+        let overlap = { (s: (left: CGFloat, width: CGFloat)) in min(left + width, s.left + s.width) - max(left, s.left) }
+        return spans.indices.max { overlap(spans[$0]) < overlap(spans[$1]) }
+    }
+
+    /// The display in `frames` (global points) that `frame` is stacked on: of those whose top or bottom edge it
+    /// touches, the one sharing the most columns. Nil when it touches none.
+    public static func host(of frame: CGRect, among frames: [CGRect]) -> Int? {
+        let columns = { (f: CGRect) in min(frame.maxX, f.maxX) - max(frame.minX, f.minX) }
+        return frames.indices
+            .filter { Layout.stacks(frames[$0], frame) || Layout.stacks(frame, frames[$0]) }
+            .max { columns(frames[$0]) < columns(frames[$1]) }
+    }
+
     /// Top, center and bottom of a display `height` tall, relative to its top.
     private static func levels(of height: CGFloat) -> [CGFloat] { [0, height / 2, height] }
 }

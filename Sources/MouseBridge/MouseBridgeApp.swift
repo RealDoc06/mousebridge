@@ -31,7 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [self] _ in
             MainActor.assumeIsolated {
                 desk.reload()
-                Task { await monitors.reload() }
+                Shade.refit()
+                // Again once settled too: a reconnected monitor's framebuffer details can lag the first notification.
+                Task {
+                    await monitors.reload(settle: .seconds(1))
+                    desk.reload()
+                }
             }
         }
         if !AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) || !tap.start() {
@@ -59,7 +64,7 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if desk.row.count > 1 {
+            if desk.row.count + desk.stacked.count > 1 {
                 ArrangementView(
                     desk: desk,
                     names: Dictionary(monitors.all.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
@@ -168,8 +173,11 @@ private struct MonitorControls: View {
                     Text(monitor.defaultName).font(.callout.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
-                Tag(text: monitor.usesDDC ? "DDC" : "Software")
-                    .help(monitor.usesDDC ? "Brightness set on the display over DDC/CI" : "Brightness dimmed in software")
+                switch monitor.dimming {
+                case .ddc: Tag(text: "DDC").help("Brightness set on the display over DDC/CI")
+                case .gamma: Tag(text: "Software").help("Brightness dimmed in software")
+                case .shade: Tag(text: "Overlay").help("Dimmed with an overlay. The device's own backlight is set on the device.")
+                }
             }
             LevelRow(label: "Brightness", value: monitor.brightness, set: monitor.setBrightness)
             if let volume = monitor.volume {

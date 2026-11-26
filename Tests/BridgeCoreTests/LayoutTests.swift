@@ -69,3 +69,8 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
     #expect(Layout(displays: [lenovo]).distanceToSharedEdge(CGPoint(x: 5, y: 5)) == nil)
     #expect(desk.distanceToSharedEdge(CGPoint(x: 0, y: -400)) == 400) // above the edge, e.g. on a display stacked on top
 }
+
+@Test func crossingOntoAStackedDisplayIsLeftToMacOS() {
+    // An iPad above the MSI also touches the Lenovo's left edge; macOS put the cursor on it, outside the row.
+    #expect(desk.remap(from: CGPoint(x: 2, y: 100), to: CGPoint(x: -1, y: 100), delta: CGVector(dx: -3, dy: 0)) == nil)
+}

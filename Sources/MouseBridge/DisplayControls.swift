@@ -1,5 +1,5 @@
-import CoreGraphics
-import Foundation
+import AppKit
+import IOKit
 
 /// HDR switching through SkyLight's private API, the call behind System Settings' HDR toggle.
 enum HDR {
@@ -17,6 +17,21 @@ enum HDR {
 
 /// Software dimming for displays without DDC: scales the gamma ramp's maximum.
 enum Gamma {
+    /// Displays drawn by a GPU framebuffer, the only ones gamma ramps reach. Framebuffers are matched to displays
+    /// by EDID vendor and model. Virtual displays (Sidecar, AirPlay) have none and are dimmed by `Shade`.
+    static func reachable() -> Set<CGDirectDisplayID> {
+        var products: Set<Product> = []
+        var iterator = io_iterator_t()
+        if IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebuffer"), &iterator) == KERN_SUCCESS {
+            while case let entry = IOIteratorNext(iterator), entry != 0 {
+                Product(framebuffer: entry).map { products.insert($0) }
+                IOObjectRelease(entry)
+            }
+            IOObjectRelease(iterator)
+        }
+        return Set(activeDisplays().filter { CGDisplayIsBuiltin($0) != 0 || products.contains(Product($0)) })
+    }
+
     static func dim(_ id: CGDirectDisplayID, to level: Double) {
         let max = Float(level)
         CGSetDisplayTransferByFormula(id, 0, max, 1, 0, max, 1, 0, max, 1)
@@ -24,4 +39,65 @@ enum Gamma {
 
     /// Puts every display back on its ColorSync profile. Called on quit.
     static func restore() { CGDisplayRestoreColorSyncSettings() }
+}
+
+/// Software dimming for virtual displays, which gamma ramps don't reach: a click-through black panel over the
+/// whole display, more opaque the dimmer it is. It can't change the device's own backlight (an iPad's stays as set
+/// on the iPad), and it shows in screenshots. The cursor stays bright.
+@MainActor
+enum Shade {
+    private static var panels: [CGDirectDisplayID: NSPanel] = [:]
+
+    /// A mirror has the bounds of the display it mirrors, so it never gets a panel, even mid-switch to mirroring.
+    static func dim(_ id: CGDirectDisplayID, to level: Double) {
+        guard level < 1, CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay else {
+            panels.removeValue(forKey: id)?.orderOut(nil)
+            return
+        }
+        let panel = panels[id] ?? makePanel()
+        panels[id] = panel
+        // Placed from Quartz's frame, flipped into AppKit's bottom-left coordinates.
+        let f = CGDisplayBounds(id), mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+        panel.setFrame(CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height), display: false)
+        panel.alphaValue = 1 - level
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    /// Puts each panel back over its display after the displays move, and drops those whose display is gone or now
+    /// mirrors another. Runs right on a display change, ahead of the settled reload that redims.
+    static func refit() {
+        let active = activeDisplays(), mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+        for (id, panel) in panels {
+            guard active.contains(id), CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay else {
+                panel.orderOut(nil)
+                panels[id] = nil
+                continue
+            }
+            let f = CGDisplayBounds(id)
+            panel.setFrame(CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height), display: false)
+        }
+    }
+
+    /// Drops the panels of displays not in `ids`, e.g. after one disconnects.
+    static func keep(_ ids: [CGDirectDisplayID]) {
+        for (id, panel) in panels where !ids.contains(id) {
+            panel.orderOut(nil)
+            panels[id] = nil
+        }
+    }
+
+    /// Above the menu bar, Dock and full screen apps, below the brightness HUD.
+    static let level = NSWindow.Level.screenSaver
+
+    private static func makePanel() -> NSPanel {
+        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        panel.level = level
+        panel.backgroundColor = .black
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        return panel
+    }
 }
