@@ -128,10 +128,9 @@ public enum Arrangement {
     private static func levels(of height: CGFloat) -> [CGFloat] { [0, height / 2, height] }
 }
 
-/// Maps global x (points) along the row to canvas mm and back, through whichever row display holds it, at that
-/// display's scale. A display stacked across a seam is then drawn over exactly the columns of each display it
-/// touches: where the cursor crosses between them in macOS. Past the row's ends it carries on at the end display's
-/// scale.
+/// Maps global x (points) along the row to desk mm and back, through whichever row display holds it, at that
+/// display's scale; past the row's ends it carries on at the end display's. A dropped stacked display goes where
+/// macOS gets the x (`x(_:)`) for its spot along the desk; `mm(_:)` is its inverse.
 public struct RowMap: Sendable {
     private let spans: [(frame: CGRect, left: CGFloat, mmPerPoint: CGFloat)]
 

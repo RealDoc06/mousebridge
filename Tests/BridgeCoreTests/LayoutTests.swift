@@ -113,8 +113,10 @@ private func stackedDesk(below: Bool = true) -> (layout: Layout, ipad: Display) 
     #expect(target.y == lenovo.frame.maxY - 1 - Layout.landingInset)
 }
 
-@Test func distanceCountsTheWholeEdgeTowardAStackedDisplay() {
-    #expect(stackedDesk().layout.distanceToSharedEdge(CGPoint(x: -1800, y: 1400)) == 40)
+@Test func distanceCountsTheEdgesTowardAStackedDisplay() {
+    // Anywhere along the Lenovo's bottom, which the iPad is in front of; not the MSI's, which it isn't near.
+    #expect(stackedDesk().layout.distanceToSharedEdge(CGPoint(x: 300, y: 1400)) == 40)
+    #expect(stackedDesk().layout.distanceToSharedEdge(CGPoint(x: -1800, y: 1400))! > 1000)
 }
 
 @Test func crossingMacOSAlreadyMadeIsMovedToThePhysicalSpot() throws {
@@ -160,12 +162,12 @@ private func stackedDesk(below: Bool = true) -> (layout: Layout, ipad: Display) 
 
 @Test func crossingPrefersTheStackedDisplayMacOSEntered() throws {
     // A laptop and an iPad below the Lenovo whose desk spans overlap; macOS put the cursor on the iPad.
-    var m = msi, l = lenovo
-    l.leftMM = m.widthMM
+    var l = lenovo
+    l.leftMM = msi.widthMM
     let laptop = Display(frame: CGRect(x: 0, y: 1440, width: 1000, height: 600), widthMM: 300, leftMM: l.leftMM)
     let ipad = Display(frame: CGRect(x: 1100, y: 1440, width: 1543, height: 1157), widthMM: 265, leftMM: l.leftMM + 200)
-    let layout = Layout(displays: [l, m], row: [m, l], stacked: [.init(laptop, below: true), .init(ipad, below: true)])
-    let x = 250 / lenovo.mmPerPoint // 250 mm along the Lenovo: in front of both
+    let layout = Layout(displays: [l, msi], row: [msi, l], stacked: [.init(laptop, below: true), .init(ipad, below: true)])
+    let x = 250 / lenovo.mmPerPoint // macOS moved it to x 1101, 259 mm along the Lenovo: in front of both
     let target = try #require(layout.remap(from: CGPoint(x: x, y: 1438), to: CGPoint(x: 1101, y: 1442), delta: CGVector(dx: 0, dy: 4)))
     #expect(ipad.frame.contains(target))
 }

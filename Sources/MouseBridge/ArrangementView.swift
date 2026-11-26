@@ -394,11 +394,11 @@ struct ArrangementView: View {
         // Same spot, same side (a click, or a short drag that settles back): nothing moves.
         if abs(moved - left) < 0.5, below == (d.frame.midY > row[s.host].frame.midY) { return unmoved }
         let x = map.x(moved + d.widthMM / 2) - d.frame.width / 2
-        // Where it can't fit in macOS, it stays where it was.
+        // Where it can't fit in macOS, it keeps its macOS spot on the same side, and stays put if moved across.
         guard let origin = Arrangement.origin(
             stacking: d.frame.size, leftMM: (x - row[h].frame.minX) * row[h].mmPerPoint, below: below, on: row[h],
             clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
-        ) else { return unmoved }
+        ) else { return below == (d.frame.midY > row[s.host].frame.midY) ? drawn(moved, s.host, below, d.frame) : unmoved }
         return drawn(moved, h, below, CGRect(origin: origin, size: d.frame.size))
     }
 

@@ -156,7 +156,12 @@ public struct Layout: Sendable {
             }
         }
         let ends = stacked.flatMap { s in
-            let edges = row.map { ($0.frame, s.below ? $0.frame.maxY : $0.frame.minY) }
+            // Row edges the cursor can cross at: in front of it physically, or touching it in macOS.
+            let crossing = row.filter { r in
+                r.leftMM < s.display.leftMM + s.display.widthMM && s.display.leftMM < r.leftMM + r.widthMM
+                    || Self.stacks(r.frame, s.display.frame) || Self.stacks(s.display.frame, r.frame)
+            }
+            let edges = crossing.map { ($0.frame, s.below ? $0.frame.maxY : $0.frame.minY) }
                 + [(s.display.frame, s.below ? s.display.frame.minY : s.display.frame.maxY)]
             return edges.map { f, y in hypot(max(f.minX - p.x, p.x - f.maxX, 0), p.y - y) }
         }
