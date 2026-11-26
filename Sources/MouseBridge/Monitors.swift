@@ -43,7 +43,9 @@ final class Monitor: Identifiable {
         maxBrightness = ddcBrightness?.max ?? 100
         maxVolume = probe.volume?.max ?? 100
         volume = probe.volume.map { Double($0.value) / Double(max($0.max, 1)) }
-        dimming = ddcBrightness != nil ? .ddc : probe.virtual ? .shade : .gamma
+        // A mirror has the bounds of the display it mirrors, which a shade would cover instead.
+        let mirror = CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay
+        dimming = ddcBrightness != nil ? .ddc : probe.virtual && !mirror ? .shade : .gamma
         if let ddcBrightness {
             brightness = Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1))
         } else {

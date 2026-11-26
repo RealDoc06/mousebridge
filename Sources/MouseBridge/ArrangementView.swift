@@ -180,7 +180,8 @@ struct ArrangementView: View {
         let top = { (h: Int, below: Bool) in below ? row[h].topMM + row[h].heightMM : row[h].topMM - d.heightMM }
         let base = Arrangement.stack(d.frame, on: row[s.host])
         let left = lefts[s.host] + base.leftMM
-        guard let offset else { return Placement(left: left, top: top(s.host, base.below), frame: d.frame) }
+        let unmoved = Placement(left: left, top: top(s.host, base.below), frame: d.frame)
+        guard let offset else { return unmoved }
         let free = row.map(\.widthMM).reduce(0, +) - d.widthMM
         let moved = min(
             max(left + offset.width / scale, span.lowerBound, min(0, free, left)),
@@ -192,12 +193,14 @@ struct ArrangementView: View {
         guard let origin = Arrangement.origin(
             stacking: d.frame.size, leftMM: moved - lefts[h], below: below, on: row[h],
             clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
-        ) else { return Placement(left: left, top: top(s.host, base.below), frame: d.frame) }
+        ) else { return unmoved }
         let frame = CGRect(origin: origin, size: d.frame.size)
         // At a different scale in points, the frame can sit mostly on a neighbor of `h`, which it then follows.
         let host = Arrangement.host(of: frame, among: row.map(\.frame)) ?? h
         let landed = Arrangement.stack(frame, on: row[host])
-        return Placement(left: lefts[host] + landed.leftMM, top: top(host, landed.below), frame: frame)
+        let placed = Placement(left: lefts[host] + landed.leftMM, top: top(host, landed.below), frame: frame)
+        // Sliding clear of a neighbor can push it off the canvas, which counts as not fitting too.
+        return span.contains(placed.left + 0.5) && span.contains(placed.left + d.widthMM - 0.5) ? placed : unmoved
     }
 
     /// Left edge (mm) of each display when laid out in `order`, indexed like `desk.row`.

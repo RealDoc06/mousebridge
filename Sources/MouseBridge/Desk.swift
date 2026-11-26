@@ -80,14 +80,16 @@ final class Desk {
             }
         }
         self.screens = screens
-        // Main's chain first, so it wins full ties: `max` keeps the first of equals.
-        let starts = screens.sorted { a, b in a.id == CGMainDisplayID() && b.id != CGMainDisplayID() }
-        let chains = starts.map { start in
-            let ids = Self.row(from: start, in: screens)
-            let chain = screens.filter { ids.contains($0.id) } // left to right, each beside the next
-            return (ids: ids, edge: zip(chain, chain.dropFirst()).map { Self.shared($0.display.frame, $1.display.frame) }.reduce(0, +))
-        }
+        // Main's chain first, so it wins full ties: `max` keeps the first of equals. The current row is a candidate
+        // too while it still chains, since each walk can wander off onto a stacked display.
         let current = rowIDs
+        let starts = screens.sorted { a, b in a.id == CGMainDisplayID() && b.id != CGMainDisplayID() }
+        let chains = (starts.map { Self.row(from: $0, in: screens) } + [current]).compactMap { ids -> (ids: Set<CGDirectDisplayID>, edge: CGFloat)? in
+            let chain = screens.filter { ids.contains($0.id) } // left to right
+            let pairs = zip(chain, chain.dropFirst()).map { ($0.display.frame, $1.display.frame) }
+            guard !ids.isEmpty, chain.count == ids.count, pairs.allSatisfy(Layout.borders) else { return nil }
+            return (ids: ids, edge: pairs.map(Self.shared).reduce(0, +))
+        }
         let rank = { (c: (ids: Set<CGDirectDisplayID>, edge: CGFloat)) in (c.ids.count, c.ids == current ? 1 : 0, c.edge) }
         rowIDs = chains.max { rank($0) < rank($1) }?.ids ?? []
         let row = screens.filter { rowIDs.contains($0.id) }
