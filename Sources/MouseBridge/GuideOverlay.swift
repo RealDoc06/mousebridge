@@ -83,12 +83,10 @@ struct OnWindowVisibility: NSViewRepresentable {
             observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.report(self?.window?.occlusionState.contains(.visible) ?? false) }
+                MainActor.assumeIsolated { self?.action?(self?.window?.occlusionState.contains(.visible) ?? false) }
             }
             // Reported a turn later, since SwiftUI state can't change while the view is being attached.
-            DispatchQueue.main.async { [weak self] in self?.report(self?.window?.occlusionState.contains(.visible) ?? false) }
+            DispatchQueue.main.async { [weak self] in self?.action?(self?.window?.occlusionState.contains(.visible) ?? false) }
         }
-
-        private func report(_ visible: Bool) { action?(visible) }
     }
 }
