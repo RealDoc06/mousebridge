@@ -5,7 +5,6 @@ enum Theme {
     static let window = Color(white: 0.145)
     static let card = Color(white: 0.176)
     static let stroke = Color.white.opacity(0.06)
-    static let track = Color(white: 0.26)
     static let padding: CGFloat = 12
     static let cardPadding: CGFloat = 10
     static let cardRadius: CGFloat = 10
@@ -35,8 +34,7 @@ struct Panel<Header: View, Content: View>: View {
     }
 }
 
-/// A card row with a label and a 0...1 level drawn as a meter, set by clicking or dragging along it, or with the
-/// arrow keys when keyboard navigation focuses it.
+/// A card row with a label, a native slider for a 0...1 level (Liquid Glass knob on macOS 26+), and the percent.
 struct LevelRow: View {
     let label: String
     let value: Double
@@ -44,46 +42,15 @@ struct LevelRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(label).frame(width: 72, alignment: .leading)
-            Meter(value: value, set: set)
+            // VoiceOver reads the label and value from the slider itself.
+            Text(label).frame(width: 72, alignment: .leading).accessibilityHidden(true)
+            Slider(value: Binding(get: { value }, set: set)) { Text(label) }
+                .labelsHidden()
             Text(value, format: .percent.precision(.fractionLength(0)))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 40, alignment: .trailing)
-        }
-        .accessibilityRepresentation { Slider(value: Binding(get: { value }, set: set)) { Text(label) } }
-    }
-}
-
-private struct Meter: View {
-    let value: Double
-    let set: @MainActor (Double) -> Void
-
-    private static let endReach: CGFloat = 3
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.track)
-                Capsule().fill(Color.accentColor).frame(width: geo.size.width * min(max(value, 0), 1))
-            }
-            .frame(height: 6)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            // The last few points at each end count as the end, so 0% and 100% are easy to hit.
-            .gesture(DragGesture(minimumDistance: 0).onChanged {
-                set(min(max(($0.location.x - Self.endReach) / (geo.size.width - 2 * Self.endReach), 0), 1))
-            })
-        }
-        .frame(height: 16)
-        // Focusable only with keyboard navigation on, like a native slider, so the popup doesn't open with a focus ring.
-        .focusable(interactions: .activate)
-        .onMoveCommand { direction in
-            switch direction {
-            case .left, .down: set(max(value - 1 / 16, 0))
-            case .right, .up: set(min(value + 1 / 16, 1))
-            @unknown default: break
-            }
+                .accessibilityHidden(true)
         }
     }
 }
@@ -96,7 +63,7 @@ struct ToggleRow: View {
     var body: some View {
         Toggle(isOn: $isOn) { Text(label).frame(maxWidth: .infinity, alignment: .leading) }
             .toggleStyle(.switch)
-            .controlSize(.mini)
+            .controlSize(.small)
     }
 }
 
