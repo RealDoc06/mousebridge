@@ -144,9 +144,12 @@ private struct MonitorControls: View {
                     .onAppear { focused = true }
                     .onSubmit(commit)
                     .onExitCommand { self.draft = nil }
-                Button("Save", systemImage: "checkmark", action: commit).help("Save")
+                Button("Save", systemImage: "checkmark", action: commit)
+                    .help("Save")
+                    .fontWeight(.regular)
+                    .foregroundStyle(.secondary)
             } else {
-                Text(monitor.name).lineLimit(1)
+                Text(monitor.name).lineLimit(1).help(monitor.name)
                 Spacer()
                 Group {
                     if !monitor.customName.isEmpty {

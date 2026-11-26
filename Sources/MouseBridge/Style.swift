@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// The menu's look: a dark window with titled sections over grouped cards.
@@ -37,7 +36,7 @@ struct Panel<Header: View, Content: View>: View {
 }
 
 /// A card row with a label and a 0...1 level drawn as a meter, set by clicking or dragging along it, or with the
-/// arrow keys when Full Keyboard Access focuses it.
+/// arrow keys when keyboard navigation focuses it.
 struct LevelRow: View {
     let label: String
     let value: Double
@@ -77,8 +76,8 @@ private struct Meter: View {
             })
         }
         .frame(height: 16)
-        // Focusable only with Full Keyboard Access, like a native slider, so the popup doesn't open with a focus ring.
-        .focusable(NSApp.isFullKeyboardAccessEnabled)
+        // Focusable only with keyboard navigation on, like a native slider, so the popup doesn't open with a focus ring.
+        .focusable(interactions: .activate)
         .onMoveCommand { direction in
             switch direction {
             case .left, .down: set(max(value - 1 / 16, 0))
