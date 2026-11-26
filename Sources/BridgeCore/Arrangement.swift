@@ -66,7 +66,7 @@ public enum Arrangement {
     }
 
     /// Columns (points from `d`'s left) under or over the left edge, center and right edge of `other`, a display
-    /// stacked against it, by where each sits along the desk (`leftMM`): where the cursor crosses between the two.
+    /// stacked against it, by where each sits along the desk (`leftMM`): where the cursor bridge crosses between them.
     /// Drawn on the real screen, a column that runs straight into that display's actual bezel edge means its
     /// position matches the desk. Columns past the display's own edges are left out.
     public static func columns(on d: Display, of other: Display) -> [CGFloat] {

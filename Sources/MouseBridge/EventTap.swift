@@ -10,8 +10,8 @@ final class EventTap {
     var bridgeEnabled = UserDefaults.standard.object(forKey: "bridgeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(bridgeEnabled, forKey: "bridgeEnabled"); rebuildLayout() }
     }
-    /// The displays as arranged on the desk (`Desk.bridge`): side by side, and stacked on those.
-    @ObservationIgnored var displays: (side: [Display], stacked: [Layout.Stacked]) = ([], []) {
+    /// The displays as arranged on the desk (`Desk.layout`), which crossings are remapped by while the bridge is on.
+    @ObservationIgnored var arrangement = Layout(displays: []) {
         didSet { rebuildLayout() }
     }
     /// False until Accessibility permission lets the tap start.
@@ -73,7 +73,7 @@ final class EventTap {
 
     private func rebuildLayout() {
         guard bridgeEnabled else { layout = nil; gate?.layout = nil; return }
-        layout = Layout(displays: displays.side, stacked: displays.stacked)
+        layout = arrangement
         gate?.layout = layout
         last = CGEvent(source: nil)?.location ?? last
     }

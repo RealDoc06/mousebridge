@@ -44,8 +44,11 @@ public enum Alignment: String, Sendable {
 /// and so every point of a shared edge can cross (clamping where one display is taller). Crossings between the
 /// row and a display stacked above or below it keep the cursor's physical position along the desk instead.
 public struct Layout: Sendable {
+    /// Displays the cursor crosses between side to side.
     public let displays: [Display]
-    /// Displays stacked above or below `displays` on their own, like an iPad under a monitor.
+    /// The row: the side-by-side displays end to end along the desk (`leftMM`), which stacked displays sit against.
+    public let row: [Display]
+    /// Displays stacked above or below the row on their own, like an iPad under a monitor.
     public let stacked: [Stacked]
     static let landingInset: CGFloat = 3
 
@@ -60,8 +63,9 @@ public struct Layout: Sendable {
         }
     }
 
-    public init(displays: [Display], stacked: [Stacked] = []) {
+    public init(displays: [Display], row: [Display] = [], stacked: [Stacked] = []) {
         self.displays = displays
+        self.row = row
         self.stacked = stacked
     }
 
@@ -101,34 +105,29 @@ public struct Layout: Sendable {
 
     /// An up or down crossing between the row and a stacked display, at the same position along the desk. The cursor
     /// crosses only where the stacked display physically sits, wherever macOS has it in points: onto it where it is
-    /// in front of the cursor, and not at all where it isn't, even where macOS would let it through.
+    /// in front of the cursor, and not at all where it isn't, even where macOS would let it through. Back toward the
+    /// row it lands on whichever row display is in front, whatever its height in macOS.
     private func between(from prev: CGPoint, to next: CGPoint, delta: CGVector) -> CGPoint? {
         let dy = delta.dy != 0 ? delta.dy : next.y - prev.y
         guard dy != 0 else { return nil }
         let down = dy > 0
-        if let src = displays.first(where: { $0.frame.contains(prev) }) {
-            // From the row toward a display stacked on that side.
-            let targets = stacked.filter { $0.below == down }.map(\.display)
-            guard !targets.isEmpty, let (x, mm) = edge(of: src, at: next, down: down) else { return nil }
-            if let dst = targets.first(where: { $0.spans(mm) }) { return land(on: dst, at: mm, down: down) }
-            // Nothing physically there: keep the cursor on the row even where macOS put it on the stacked display.
-            return targets.contains { $0.frame.contains(next) } ? CGPoint(x: x, y: down ? src.frame.maxY - 1 : src.frame.minY) : nil
+        let from: Display, to: [Display]
+        if let src = row.first(where: { $0.frame.contains(prev) }) {
+            (from, to) = (src, stacked.filter { $0.below == down }.map(\.display))
+        } else if let src = stacked.first(where: { $0.display.frame.contains(prev) }), src.below != down {
+            (from, to) = (src.display, row)
+        } else {
+            return nil
         }
-        if let src = stacked.first(where: { $0.display.frame.contains(prev) }), src.below != down {
-            // From a stacked display back toward the row: onto the nearest row display in front of the cursor.
-            guard let (x, mm) = edge(of: src.display, at: next, down: down) else { return nil }
-            let side = displays.filter { down ? $0.frame.minY >= src.display.frame.maxY - 1 : $0.frame.maxY <= src.display.frame.minY + 1 }
-            let dst = side.filter { $0.spans(mm) }.min { abs(nearY($0, down) - next.y) < abs(nearY($1, down) - next.y) }
-            if let dst { return land(on: dst, at: mm, down: down) }
-            let edgeY = down ? src.display.frame.maxY - 1 : src.display.frame.minY
-            return side.contains { $0.frame.contains(next) } ? CGPoint(x: x, y: edgeY) : nil
-        }
-        return nil
+        guard !to.isEmpty, let edge = edge(of: from, at: next, down: down) else { return nil }
+        if let dst = to.first(where: { $0.spans(edge.mm) }) { return land(on: dst, at: edge.mm, down: down) }
+        // Nothing physically there: keep the cursor where it was, even where macOS moved it across.
+        return to.contains { $0.frame.contains(next) } ? CGPoint(x: edge.x, y: down ? from.frame.maxY - 1 : from.frame.minY) : nil
     }
 
-    /// The column (x) and desk position (mm) where the cursor meets `src`'s bottom (or top) edge, or nil when it
-    /// hasn't reached it. macOS either clamps the cursor there or has already moved it past.
-    private func edge(of src: Display, at next: CGPoint, down: Bool) -> (CGFloat, CGFloat)? {
+    /// Where the cursor meets `src`'s bottom (or top) edge: its column and desk position. Nil when it hasn't reached
+    /// it; macOS either clamps the cursor there or has already moved it past.
+    private func edge(of src: Display, at next: CGPoint, down: Bool) -> (x: CGFloat, mm: CGFloat)? {
         guard down ? next.y >= src.frame.maxY - 1 : next.y < src.frame.minY + 1 else { return nil }
         let x = min(max(next.x, src.frame.minX), src.frame.maxX - 1)
         return (x, src.leftMM + (x - src.frame.minX) * src.mmPerPoint)
@@ -142,11 +141,9 @@ public struct Layout: Sendable {
         )
     }
 
-    private func nearY(_ d: Display, _ down: Bool) -> CGFloat { down ? d.frame.minY : d.frame.maxY }
-
     /// Distance in points from `p` to the nearest edge the bridge handles, or nil when there is none: where two
     /// displays sit side by side (spanning the full height of both, since `remap` clamps onto the shorter one), and
-    /// the row's whole bottom (or top) edge toward a stacked display, since the cursor may cross anywhere along it.
+    /// the edges between the row and a stacked display, all along them, since the cursor may cross anywhere.
     public func distanceToSharedEdge(_ p: CGPoint) -> CGFloat? {
         let sides = displays.flatMap { a in
             displays.filter { Self.borders(a.frame, $0.frame) }.map { b in
@@ -154,11 +151,10 @@ public struct Layout: Sendable {
                 return hypot(p.x - a.frame.maxX, max(top - p.y, p.y - bottom, 0))
             }
         }
-        let frames = displays.map(\.frame)
-        let ends = stacked.map { s in
-            let all = frames + [s.display.frame]
-            let lo = all.map(\.minX).min() ?? 0, hi = all.map(\.maxX).max() ?? 0
-            return hypot(max(lo - p.x, p.x - hi, 0), p.y - (s.below ? s.display.frame.minY : s.display.frame.maxY))
+        let ends = stacked.flatMap { s in
+            let edges = row.map { ($0.frame, s.below ? $0.frame.maxY : $0.frame.minY) }
+                + [(s.display.frame, s.below ? s.display.frame.minY : s.display.frame.maxY)]
+            return edges.map { f, y in hypot(max(f.minX - p.x, p.x - f.maxX, 0), p.y - y) }
         }
         return (sides + ends).min()
     }

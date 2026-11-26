@@ -31,17 +31,18 @@ final class Desk {
     /// instead.
     var row: [Screen] { screens.filter { rowIDs.contains($0.id) } }
     /// Displays directly above or below one in the row. The cursor bridge crosses to them by where they physically
-    /// sit along the desk, or, with another display outside the row beside them, side to side (see `bridge`).
+    /// sit along the desk, or, with another display outside the row beside them, side to side (see `layout`).
     var stacked: [Stacked] {
         let row = row
         return screens.compactMap { s in
             stackedHosts[s.id].flatMap { h in row.firstIndex { $0.id == h } }.map { Stacked(screen: s, host: $0) }
         }
     }
-    /// The displays the cursor bridge remaps crossings between. Side to side: all but stacked ones with no display
+    /// What the cursor bridge remaps crossings by. Side to side: all displays but stacked ones with no display
     /// outside the row beside them, so a 2×2 grid's other pair keeps its bridge and displays left out of the
-    /// arrangement stay in. Up and down: those lone stacked ones, like an iPad under a monitor, by where they sit.
-    private var bridge: (displays: [Display], stacked: [Layout.Stacked]) {
+    /// arrangement stay in. Up and down: those lone stacked ones, like an iPad under a monitor, by where they sit
+    /// along the row.
+    var layout: Layout {
         let frames = screens.filter { !rowIDs.contains($0.id) }.map(\.display.frame), hosts = stackedHosts
         let lone = { (s: Screen) in
             hosts[s.id] != nil && !frames.contains { Layout.borders(s.display.frame, $0) || Layout.borders($0, s.display.frame) }
@@ -49,7 +50,7 @@ final class Desk {
         let stacked = screens.filter(lone).compactMap { s in
             screens.first { $0.id == hosts[s.id] }.map { Layout.Stacked(s.display, below: s.display.frame.midY > $0.display.frame.midY) }
         }
-        return (screens.filter { !lone($0) }.map(\.display), stacked)
+        return Layout(displays: screens.filter { !lone($0) }.map(\.display), row: row.map(\.display), stacked: stacked)
     }
     /// True when the row and the displays stacked on it are every active display, so reordering can't overlap one
     /// left out.
@@ -58,13 +59,29 @@ final class Desk {
     var guides = UserDefaults.standard.bool(forKey: "guides") {
         didSet { UserDefaults.standard.set(guides, forKey: "guides") }
     }
-    /// Called with the cursor bridge's displays (`bridge`) whenever their geometry or arrangement changes.
-    @ObservationIgnored var onChange: (([Display], [Layout.Stacked]) -> Void)?
+    /// Called with the cursor bridge's `layout` whenever the displays' geometry or arrangement changes.
+    @ObservationIgnored var onChange: ((Layout) -> Void)?
 
     private static let topsKey = "physicalTops"
-    /// Per stacked display: the display it was placed against ("host") and its left edge's offset from that
-    /// display's left edge along the desk ("offset", mm).
     private static let leftsKey = "physicalLefts"
+
+    /// Where a stacked display was placed along the desk: against which display (`host`, its key), how far in from
+    /// that display's left edge (`offset`, mm), and where macOS had it then (`x`, points from the host's left edge).
+    /// A later move in macOS, e.g. in System Settings, no longer matches `x`, and wins.
+    private struct Placed: Codable {
+        let host: String
+        let offset: Double
+        let x: Double
+    }
+
+    /// Saved `Placed` per stacked display key.
+    private var placed: [String: Placed] {
+        get {
+            UserDefaults.standard.data(forKey: Self.leftsKey)
+                .flatMap { try? PropertyListDecoder().decode([String: Placed].self, from: $0) } ?? [:]
+        }
+        set { UserDefaults.standard.set(try? PropertyListEncoder().encode(newValue), forKey: Self.leftsKey) }
+    }
 
     private var rowIDs: Set<CGDirectDisplayID> = []
     /// The row display each stacked display touches most, by display ID.
@@ -124,17 +141,16 @@ final class Desk {
             screens[i].display.leftMM = x
             x += screens[i].display.widthMM
         }
-        let lefts = UserDefaults.standard.dictionary(forKey: Self.leftsKey) as? [String: [String: Any]] ?? [:]
+        let placed = placed
         for i in screens.indices {
             guard let h = screens.first(where: { $0.id == stackedHosts[screens[i].id] }) else { continue }
-            let placed = lefts[screens[i].key].flatMap { $0["host"] as? String == h.key ? $0["offset"] as? Double : nil }
-            screens[i].display.leftMM = h.display.leftMM
-                + (placed.map { CGFloat($0) } ?? (screens[i].display.frame.minX - h.display.frame.minX) * h.display.mmPerPoint)
+            let x = screens[i].display.frame.minX - h.display.frame.minX
+            let offset = placed[screens[i].key].flatMap { $0.host == h.key && abs($0.x - x) < 1 ? CGFloat($0.offset) : nil }
+            screens[i].display.leftMM = h.display.leftMM + (offset ?? x * h.display.mmPerPoint)
         }
         self.screens = screens
         canReorder = rowIDs.count + stackedHosts.count == active.count
-        let bridge = bridge
-        onChange?(bridge.displays, bridge.stacked)
+        onChange?(layout)
     }
 
     /// `start` and the displays chained beside it, each step taking the neighbor that shares the most rows.
@@ -163,21 +179,20 @@ final class Desk {
         var saved = UserDefaults.standard.dictionary(forKey: Self.topsKey) as? [String: Double] ?? [:]
         for s in row { saved[s.key] = s.display.topMM }
         UserDefaults.standard.set(saved, forKey: Self.topsKey)
-        let bridge = bridge
-        onChange?(bridge.displays, bridge.stacked)
+        onChange?(layout)
     }
 
     /// Moves a stacked display's physical left edge along the desk to `left` (mm) and saves it against the display
-    /// it sits on, which the cursor bridge crosses to it by.
+    /// it sits on, which the cursor bridge crosses to it by. Call after moving it in macOS, so it saves where macOS
+    /// has it now.
     func setLeft(_ left: CGFloat, of id: CGDirectDisplayID) {
         guard let i = screens.firstIndex(where: { $0.id == id }),
               let host = screens.first(where: { $0.id == stackedHosts[id] }) else { return }
         screens[i].display.leftMM = left
-        var saved = UserDefaults.standard.dictionary(forKey: Self.leftsKey) as? [String: [String: Any]] ?? [:]
-        saved[screens[i].key] = ["host": host.key, "offset": Double(left - host.display.leftMM)]
-        UserDefaults.standard.set(saved, forKey: Self.leftsKey)
-        let bridge = bridge
-        onChange?(bridge.displays, bridge.stacked)
+        placed[screens[i].key] = Placed(
+            host: host.key, offset: Double(left - host.display.leftMM), x: Double(screens[i].display.frame.minX - host.display.frame.minX)
+        )
+        onChange?(layout)
     }
 
     /// Puts the displays side by side in macOS's arrangement in `order`, left to right, keeping each one's
