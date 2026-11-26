@@ -59,6 +59,17 @@ enum Shade {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
+    /// Puts each panel back over its display after the displays move, and drops those whose display is gone. Runs
+    /// right on a display change, ahead of the settled reload that redims.
+    static func refit() {
+        let active = activeDisplays(), mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+        for (id, panel) in panels {
+            guard active.contains(id) else { panel.orderOut(nil); panels[id] = nil; continue }
+            let f = CGDisplayBounds(id)
+            panel.setFrame(CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height), display: false)
+        }
+    }
+
     /// Drops the panels of displays not in `ids`, e.g. after one disconnects.
     static func keep(_ ids: [CGDirectDisplayID]) {
         for (id, panel) in panels where !ids.contains(id) {

@@ -89,5 +89,12 @@ import Testing
     let origin = Arrangement.origin(stacking: size, leftMM: 400, below: false, on: msi, clearOf: [lenovo.frame])
     #expect(origin == CGPoint(x: -1543, y: 360 - 1157))
     // Dropped past the host's end with nothing in the way, it still keeps a column on the host.
-    #expect(Arrangement.origin(stacking: size, leftMM: 900, below: true, on: msi).x == -1)
+    #expect(Arrangement.origin(stacking: size, leftMM: 900, below: true, on: msi)?.x == -1)
+}
+
+@Test func stackedDropThatFitsNowhereIsRefused() {
+    // A 1543 pt iPad above a 1280 pt display whose taller neighbors both reach into those rows.
+    let host = Display(frame: CGRect(x: 0, y: 360, width: 1280, height: 720), widthMM: 300)
+    let neighbors = [CGRect(x: -1000, y: 0, width: 1000, height: 1080), CGRect(x: 1280, y: 0, width: 1000, height: 1080)]
+    #expect(Arrangement.origin(stacking: CGSize(width: 1543, height: 1157), leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
 }

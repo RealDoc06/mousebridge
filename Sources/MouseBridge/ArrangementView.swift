@@ -172,7 +172,7 @@ struct ArrangementView: View {
 
     /// Where a stacked display sits against its host or, dragged by `offset`, where it lands: along the row (kept
     /// over it, or where it already hangs, and within the canvas `span`), against the display it overlaps most, on
-    /// the side its center is on. It's drawn from the frame that gives in macOS, the way the menu shows it after.
+    /// the side its center is on, clear of that display's neighbors. It's drawn from the frame that gives in macOS, the way the menu shows it after.
     private func place(
         _ s: Desk.Stacked, offset: CGSize?, row: [Display], lefts: [CGFloat], span: ClosedRange<CGFloat>, scale: CGFloat
     ) -> Placement {
@@ -188,13 +188,12 @@ struct ArrangementView: View {
         )
         let h = Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
         let below = top(s.host, base.below) + d.heightMM / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
-        let frame = CGRect(
-            origin: Arrangement.origin(
-                stacking: d.frame.size, leftMM: moved - lefts[h], below: below, on: row[h],
-                clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
-            ),
-            size: d.frame.size
-        )
+        // Where it can't fit, it stays where it was.
+        guard let origin = Arrangement.origin(
+            stacking: d.frame.size, leftMM: moved - lefts[h], below: below, on: row[h],
+            clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
+        ) else { return Placement(left: left, top: top(s.host, base.below), frame: d.frame) }
+        let frame = CGRect(origin: origin, size: d.frame.size)
         // At a different scale in points, the frame can sit mostly on a neighbor of `h`, which it then follows.
         let host = Arrangement.host(of: frame, among: row.map(\.frame)) ?? h
         let landed = Arrangement.stack(frame, on: row[host])

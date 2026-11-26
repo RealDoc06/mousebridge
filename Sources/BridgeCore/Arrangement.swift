@@ -72,17 +72,18 @@ public enum Arrangement {
     }
 
     /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
-    /// its bottom or top: the inverse of `stack`. It slides clear of `others` (the host's neighbors) where they
-    /// reach into its rows, as Quartz would, but always keeps a column on the host.
+    /// its bottom or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they
+    /// reach into its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
     public static func origin(
         stacking size: CGSize, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
-    ) -> CGPoint {
+    ) -> CGPoint? {
         let y = below ? host.frame.maxY : host.frame.minY - size.height
-        var x = (host.frame.minX + leftMM / host.mmPerPoint).rounded()
+        var lowest = host.frame.minX - size.width + 1, highest = host.frame.maxX - 1
         for o in others where o.minY < y + size.height && y < o.maxY {
-            x = o.midX > host.frame.midX ? min(x, o.minX - size.width) : max(x, o.maxX)
+            if o.midX > host.frame.midX { highest = min(highest, o.minX - size.width) } else { lowest = max(lowest, o.maxX) }
         }
-        return CGPoint(x: min(max(x, host.frame.minX - size.width + 1), host.frame.maxX - 1), y: y)
+        guard lowest <= highest else { return nil }
+        return CGPoint(x: min(max((host.frame.minX + leftMM / host.mmPerPoint).rounded(), lowest), highest), y: y)
     }
 
     /// The display (index into `spans`, each a left edge and width) that a span from `left`, `width` wide, overlaps

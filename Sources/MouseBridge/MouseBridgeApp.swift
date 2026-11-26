@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [self] _ in
             MainActor.assumeIsolated {
                 desk.reload()
+                Shade.refit()
                 Task { await monitors.reload(settle: .seconds(1)) }
             }
         }
