@@ -41,10 +41,8 @@ final class DDC: @unchecked Sendable {
             defer { IOObjectRelease(entry) }
             let name = registryName(entry)
             if name.contains("AppleCLCD2") || name.contains("IOMobileFramebufferShim") {
-                let product = (property(entry, "DisplayAttributes") as? [String: Any])?["ProductAttributes"] as? [String: Any]
-                let vendor = product?["LegacyManufacturerID"] as? UInt32
-                let model = product?["ProductID"] as? UInt32
-                owner = externals.first { CGDisplayVendorNumber($0) == vendor && CGDisplayModelNumber($0) == model && found[$0] == nil }
+                let product = Product(framebuffer: entry)
+                owner = externals.first { Product($0) == product && found[$0] == nil }
             } else if name == "DCPAVServiceProxy", let id = owner,
                       property(entry, "Location") as? String == "External",
                       let service = create(kCFAllocatorDefault, entry)?.takeRetainedValue() {
@@ -104,7 +102,7 @@ final class DDC: @unchecked Sendable {
         return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
-    private static func property(_ entry: io_registry_entry_t, _ key: String) -> Any? {
+    fileprivate static func property(_ entry: io_registry_entry_t, _ key: String) -> Any? {
         IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
     }
 }
@@ -116,4 +114,23 @@ func activeDisplays() -> [CGDirectDisplayID] {
     var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
     CGGetActiveDisplayList(count, &ids, &count)
     return ids
+}
+
+/// A display model as its EDID names it, which both CoreGraphics and IORegistry framebuffers report.
+struct Product: Hashable {
+    let vendor: UInt32
+    let model: UInt32
+
+    init(_ id: CGDirectDisplayID) {
+        vendor = CGDisplayVendorNumber(id)
+        model = CGDisplayModelNumber(id)
+    }
+
+    /// The display a framebuffer drives, from its `DisplayAttributes`. Nil when nothing is attached.
+    init?(framebuffer entry: io_registry_entry_t) {
+        let product = (DDC.property(entry, "DisplayAttributes") as? [String: Any])?["ProductAttributes"] as? [String: Any]
+        guard let vendor = product?["LegacyManufacturerID"] as? UInt32, let model = product?["ProductID"] as? UInt32 else { return nil }
+        self.vendor = vendor
+        self.model = model
+    }
 }

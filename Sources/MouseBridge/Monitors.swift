@@ -96,9 +96,13 @@ private struct Probe: Sendable {
 @MainActor @Observable
 final class Monitors {
     private(set) var all: [Monitor] = []
+    /// Counts reloads, so a slow probe that finishes after a newer one is dropped.
+    @ObservationIgnored private var generation = 0
 
     /// Re-probes every display. DDC reads take tens of milliseconds each, so they run in the background.
     func reload() async {
+        generation += 1
+        let current = generation
         let probes = await Task.detached {
             let channels = DDC.discover(), reachable = Gamma.reachable()
             return activeDisplays().map { id in
@@ -110,6 +114,7 @@ final class Monitors {
                 )
             }
         }.value
+        guard current == generation else { return }
         // Gamma resets on display changes, so software-dimmed levels are carried over and reapplied.
         let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id]) }

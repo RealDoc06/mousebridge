@@ -77,4 +77,8 @@ import Testing
     let row: [(left: CGFloat, width: CGFloat)] = [(0, 542), (542, 602)]
     #expect(Arrangement.host(left: 420, width: 265, in: row) == 1)
     #expect(Arrangement.host(left: 300, width: 265, in: row) == 0)
+    // In points, an iPad below both shares more columns with the Lenovo; one beside the row touches neither.
+    let frames = [msi.frame, CGRect(x: 0, y: 360, width: 2560, height: 1080)]
+    #expect(Arrangement.host(of: CGRect(x: -500, y: 1440, width: 1543, height: 1157), among: frames) == 1)
+    #expect(Arrangement.host(of: CGRect(x: 2560, y: 360, width: 1543, height: 1157), among: frames) == nil)
 }

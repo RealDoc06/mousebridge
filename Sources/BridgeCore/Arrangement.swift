@@ -78,10 +78,20 @@ public enum Arrangement {
     }
 
     /// The display (index into `spans`, each a left edge and width) that a span from `left`, `width` wide, overlaps
-    /// the most: the one a dragged stacked display lands on.
+    /// the most: the one a dragged stacked display is dropped against. `host(of:among:)` then settles which display
+    /// the resulting frame sits on.
     public static func host(left: CGFloat, width: CGFloat, in spans: [(left: CGFloat, width: CGFloat)]) -> Int? {
         let overlap = { (s: (left: CGFloat, width: CGFloat)) in min(left + width, s.left + s.width) - max(left, s.left) }
         return spans.indices.max { overlap(spans[$0]) < overlap(spans[$1]) }
+    }
+
+    /// The display in `frames` (global points) that `frame` is stacked on: of those whose top or bottom edge it
+    /// touches, the one sharing the most columns. Nil when it touches none.
+    public static func host(of frame: CGRect, among frames: [CGRect]) -> Int? {
+        let columns = { (f: CGRect) in min(frame.maxX, f.maxX) - max(frame.minX, f.minX) }
+        return frames.indices
+            .filter { Layout.stacks(frames[$0], frame) || Layout.stacks(frame, frames[$0]) }
+            .max { columns(frames[$0]) < columns(frames[$1]) }
     }
 
     /// Top, center and bottom of a display `height` tall, relative to its top.

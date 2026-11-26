@@ -50,7 +50,9 @@ public struct Layout: Sendable {
         let jumped = hypot(next.x - prev.x, next.y - prev.y) > hypot(delta.dx, delta.dy) + 100
         let prev = jumped ? CGPoint(x: next.x - delta.dx, y: next.y - delta.dy) : prev
         let dx = delta.dx
-        guard let src = displays.first(where: { $0.frame.contains(prev) }) else { return nil }
+        guard let src = displays.first(where: { $0.frame.contains(prev) }),
+              // A crossing macOS put onto a display left out of `displays` (one stacked above or below) is left alone.
+              displays.contains(where: { $0.frame.contains(next) }) else { return nil }
         let left: Bool
         if dx != 0 { left = dx < 0 } else if next.x != prev.x { left = next.x < prev.x } else { return nil }
 

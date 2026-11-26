@@ -20,23 +20,16 @@ enum Gamma {
     /// Displays drawn by a GPU framebuffer, the only ones gamma ramps reach. Framebuffers are matched to displays
     /// by EDID vendor and model. Virtual displays (Sidecar, AirPlay) have none and are dimmed by `Shade`.
     static func reachable() -> Set<CGDirectDisplayID> {
+        var products: Set<Product> = []
         var iterator = io_iterator_t()
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebuffer"), &iterator) == KERN_SUCCESS
-        else { return [] }
-        defer { IOObjectRelease(iterator) }
-        var products: Set<[UInt32]> = []
-        while case let entry = IOIteratorNext(iterator), entry != 0 {
-            defer { IOObjectRelease(entry) }
-            let attributes = IORegistryEntryCreateCFProperty(entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? [String: Any]
-            let product = attributes?["ProductAttributes"] as? [String: Any]
-            if let vendor = product?["LegacyManufacturerID"] as? UInt32, let model = product?["ProductID"] as? UInt32 {
-                products.insert([vendor, model])
+        if IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebuffer"), &iterator) == KERN_SUCCESS {
+            while case let entry = IOIteratorNext(iterator), entry != 0 {
+                Product(framebuffer: entry).map { products.insert($0) }
+                IOObjectRelease(entry)
             }
+            IOObjectRelease(iterator)
         }
-        return Set(activeDisplays().filter {
-            CGDisplayIsBuiltin($0) != 0 || products.contains([CGDisplayVendorNumber($0), CGDisplayModelNumber($0)])
-        })
+        return Set(activeDisplays().filter { CGDisplayIsBuiltin($0) != 0 || products.contains(Product($0)) })
     }
 
     static func dim(_ id: CGDirectDisplayID, to level: Double) {

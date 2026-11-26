@@ -14,17 +14,26 @@ final class Desk {
         var display: Display
     }
 
+    /// A display directly above or below the row.
+    struct Stacked {
+        let screen: Screen
+        /// Index in `row` of the display it's stacked on.
+        let host: Int
+    }
+
     /// Left to right, as macOS arranges them.
     private(set) var screens: [Screen] = []
     /// The displays that sit side by side in macOS, left to right, each touching the next with rows in common:
-    /// the main display and, outward from it, the neighbor sharing the most edge on each side. The main display
-    /// alone when nothing sits beside it. A display stacked above or below them is in `stacked` instead.
+    /// the longest such chain, preferring the main display's. A display stacked above or below them is in
+    /// `stacked` instead.
     var row: [Screen] { screens.filter { rowIDs.contains($0.id) } }
-    /// Displays directly above or below one in the row, each with the index in `row` of the one it touches most.
-    /// The cursor bridge leaves them alone, since macOS crosses vertical edges fine.
-    var stacked: [(screen: Screen, host: Int)] {
+    /// Displays directly above or below one in the row. The cursor bridge leaves them alone, since macOS crosses
+    /// vertical edges fine.
+    var stacked: [Stacked] {
         let row = row
-        return screens.compactMap { s in stackedHosts[s.id].flatMap { h in row.firstIndex { $0.id == h } }.map { (s, $0) } }
+        return screens.compactMap { s in
+            stackedHosts[s.id].flatMap { h in row.firstIndex { $0.id == h } }.map { Stacked(screen: s, host: $0) }
+        }
     }
     /// True when the row and the displays stacked on it are every active display, so reordering can't overlap one
     /// left out.
@@ -33,7 +42,7 @@ final class Desk {
     var guides = UserDefaults.standard.bool(forKey: "guides") {
         didSet { UserDefaults.standard.set(guides, forKey: "guides") }
     }
-    /// Called with the displays whenever their geometry or arrangement changes.
+    /// Called with the row's displays whenever their geometry or arrangement changes.
     @ObservationIgnored var onChange: (([Display]) -> Void)?
 
     private static let topsKey = "physicalTops"
@@ -70,22 +79,20 @@ final class Desk {
             }
         }
         self.screens = screens
-        rowIDs = Self.row(from: screens.first { $0.id == CGMainDisplayID() } ?? screens.first, in: screens)
+        // Main's chain first, so it wins ties: `max` keeps the first of equals.
+        let starts = screens.sorted { a, b in a.id == CGMainDisplayID() && b.id != CGMainDisplayID() }
+        rowIDs = starts.map { Self.row(from: $0, in: screens) }.max { $0.count < $1.count } ?? []
         let row = screens.filter { rowIDs.contains($0.id) }
         stackedHosts = [:]
         for s in screens where !rowIDs.contains(s.id) {
-            let f = s.display.frame
-            let touching = row.filter { Layout.stacks($0.display.frame, f) || Layout.stacks(f, $0.display.frame) }
-            let overlap = { (h: Screen) in min(f.maxX, h.display.frame.maxX) - max(f.minX, h.display.frame.minX) }
-            stackedHosts[s.id] = touching.max { overlap($0) < overlap($1) }?.id
+            stackedHosts[s.id] = Arrangement.host(of: s.display.frame, among: row.map(\.display.frame)).map { row[$0].id }
         }
         canReorder = rowIDs.count + stackedHosts.count == active.count
-        onChange?(screens.map(\.display))
+        onChange?(row.map(\.display))
     }
 
     /// `start` and the displays chained beside it, each step taking the neighbor that shares the most rows.
-    private static func row(from start: Screen?, in screens: [Screen]) -> Set<CGDirectDisplayID> {
-        guard let start else { return [] }
+    private static func row(from start: Screen, in screens: [Screen]) -> Set<CGDirectDisplayID> {
         var ids: Set<CGDirectDisplayID> = [start.id]
         for leftward in [true, false] {
             var current = start.display.frame
@@ -110,17 +117,17 @@ final class Desk {
         var saved = UserDefaults.standard.dictionary(forKey: Self.topsKey) as? [String: Double] ?? [:]
         for s in row { saved[s.key] = s.display.topMM }
         UserDefaults.standard.set(saved, forKey: Self.topsKey)
-        onChange?(screens.map(\.display))
+        onChange?(row.map(\.display))
     }
 
     /// Puts the displays side by side in macOS's arrangement in `order`, left to right, keeping each one's
-    /// vertical position and the main display at the origin. Stacked displays move with the display they sit on.
+    /// vertical position. Stacked displays move with the display they sit on.
     func reorder(_ order: [CGDirectDisplayID]) {
-        guard canReorder, let main = order.firstIndex(of: CGMainDisplayID()) else { return }
+        guard canReorder else { return }
         let frames = order.map(CGDisplayBounds)
         var x: CGFloat = 0
         let xs = frames.map { f in defer { x += f.width }; return x }
-        var origins = Dictionary(uniqueKeysWithValues: order.indices.map { (order[$0], CGPoint(x: xs[$0] - xs[main], y: frames[$0].minY)) })
+        var origins = Dictionary(uniqueKeysWithValues: order.indices.map { (order[$0], CGPoint(x: xs[$0], y: frames[$0].minY)) })
         for (id, host) in stackedHosts {
             guard let hostOrigin = origins[host] else { continue }
             let f = CGDisplayBounds(id)
@@ -136,9 +143,17 @@ final class Desk {
         configure([id: origin])
     }
 
-    /// Applies display origins in one configuration. Quartz may nudge displays to keep them touching, so the real
-    /// frames are read back right away.
+    /// Applies display origins in one configuration, shifted so the main display stays at (0, 0) as Quartz requires:
+    /// moving the main display moves everything else the other way. Quartz may nudge displays to keep them
+    /// touching, so the real frames are read back right away.
     private func configure(_ origins: [CGDirectDisplayID: CGPoint]) {
+        var origins = origins
+        if let shift = origins[CGMainDisplayID()], shift != .zero {
+            for id in activeDisplays() where origins[id] == nil && CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay {
+                origins[id] = CGDisplayBounds(id).origin
+            }
+            origins = origins.mapValues { CGPoint(x: $0.x - shift.x, y: $0.y - shift.y) }
+        }
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success else { return }
         for (id, o) in origins where CGConfigureDisplayOrigin(config, id, Int32(o.x), Int32(o.y)) != .success {
