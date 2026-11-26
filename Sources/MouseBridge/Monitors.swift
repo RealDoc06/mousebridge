@@ -96,13 +96,17 @@ private struct Probe: Sendable {
 @MainActor @Observable
 final class Monitors {
     private(set) var all: [Monitor] = []
-    /// Counts reloads, so a slow probe that finishes after a newer one is dropped.
+    /// Counts reloads, so one superseded while it waits or probes is dropped.
     @ObservationIgnored private var generation = 0
 
-    /// Re-probes every display. DDC reads take tens of milliseconds each, so they run in the background.
-    func reload() async {
+    /// Re-probes every display after `settle`. DDC reads take tens of milliseconds each, so they run in the
+    /// background. Right after a display change monitors often don't answer DDC yet and macOS resets gamma a moment
+    /// later, so changes settle first. That also folds a burst of change notifications into one probe.
+    func reload(settle: Duration = .zero) async {
         generation += 1
         let current = generation
+        try? await Task.sleep(for: settle)
+        guard current == generation else { return }
         let probes = await Task.detached {
             let channels = DDC.discover(), reachable = Gamma.reachable()
             return activeDisplays().map { id in

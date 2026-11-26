@@ -24,7 +24,7 @@ final class Desk {
     /// Left to right, as macOS arranges them.
     private(set) var screens: [Screen] = []
     /// The displays that sit side by side in macOS, left to right, each touching the next with rows in common:
-    /// the longest such chain, preferring the main display's. A display stacked above or below them is in
+    /// the longest such chain, then the one sharing the most edge, then the main display's. A display stacked above or below them is in
     /// `stacked` instead.
     var row: [Screen] { screens.filter { rowIDs.contains($0.id) } }
     /// Displays directly above or below one in the row. The cursor bridge leaves them alone, since macOS crosses
@@ -79,9 +79,14 @@ final class Desk {
             }
         }
         self.screens = screens
-        // Main's chain first, so it wins ties: `max` keeps the first of equals.
+        // Main's chain first, so it wins full ties: `max` keeps the first of equals.
         let starts = screens.sorted { a, b in a.id == CGMainDisplayID() && b.id != CGMainDisplayID() }
-        rowIDs = starts.map { Self.row(from: $0, in: screens) }.max { $0.count < $1.count } ?? []
+        let chains = starts.map { start in
+            let ids = Self.row(from: start, in: screens)
+            let chain = screens.filter { ids.contains($0.id) } // left to right, each beside the next
+            return (ids: ids, edge: zip(chain, chain.dropFirst()).map { Self.shared($0.display.frame, $1.display.frame) }.reduce(0, +))
+        }
+        rowIDs = chains.max { ($0.ids.count, $0.edge) < ($1.ids.count, $1.edge) }?.ids ?? []
         let row = screens.filter { rowIDs.contains($0.id) }
         stackedHosts = [:]
         for s in screens where !rowIDs.contains(s.id) {

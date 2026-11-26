@@ -82,3 +82,12 @@ import Testing
     #expect(Arrangement.host(of: CGRect(x: -500, y: 1440, width: 1543, height: 1157), among: frames) == 1)
     #expect(Arrangement.host(of: CGRect(x: 2560, y: 360, width: 1543, height: 1157), among: frames) == nil)
 }
+
+@Test func stackedDropStaysClearOfTheTallerNeighbor() {
+    // An iPad dropped above the MSI straddling the seam would cover the Lenovo's top strip: it slides left to clear it.
+    let size = CGSize(width: 1543, height: 1157)
+    let origin = Arrangement.origin(stacking: size, leftMM: 400, below: false, on: msi, clearOf: [lenovo.frame])
+    #expect(origin == CGPoint(x: -1543, y: 360 - 1157))
+    // Dropped past the host's end with nothing in the way, it still keeps a column on the host.
+    #expect(Arrangement.origin(stacking: size, leftMM: 900, below: true, on: msi).x == -1)
+}

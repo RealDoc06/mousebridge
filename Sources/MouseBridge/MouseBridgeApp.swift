@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [self] _ in
             MainActor.assumeIsolated {
                 desk.reload()
-                Task { await monitors.reload() }
+                Task { await monitors.reload(settle: .seconds(1)) }
             }
         }
         if !AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) || !tap.start() {

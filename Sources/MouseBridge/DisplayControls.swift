@@ -77,6 +77,7 @@ enum Shade {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         return panel
     }

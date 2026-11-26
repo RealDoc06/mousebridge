@@ -189,7 +189,10 @@ struct ArrangementView: View {
         let h = Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
         let below = top(s.host, base.below) + d.heightMM / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
         let frame = CGRect(
-            origin: Arrangement.origin(stacking: d.frame.size, leftMM: moved - lefts[h], below: below, on: row[h]),
+            origin: Arrangement.origin(
+                stacking: d.frame.size, leftMM: moved - lefts[h], below: below, on: row[h],
+                clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
+            ),
             size: d.frame.size
         )
         // At a different scale in points, the frame can sit mostly on a neighbor of `h`, which it then follows.
@@ -210,8 +213,9 @@ struct ArrangementView: View {
     }
 
     /// Moves a display by `pixels` of its panel, without snapping, so it can sit just off a guide.
+    /// A display alone in the row has nothing to line up with, so it stays put.
     private func nudge(_ id: CGDirectDisplayID, pixels: CGFloat) {
-        guard let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
+        guard desk.row.count > 1, let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
         let d = desk.row[i].display
         let top = Arrangement.place(i, at: d.topMM + pixels * d.widthMM / CGFloat(nativePixelWidth(id)), in: desk.row.map(\.display))
         if top != d.topMM { desk.setTop(top, of: id) }
