@@ -125,7 +125,7 @@ struct ArrangementView: View {
         .frame(width: width, height: heightMM * scale, alignment: .topLeading)
         // The guides follow the displays as arranged, drag included, and leave with the popup.
         .background(OnWindowVisibility { open = $0 })
-        .onChange(of: open && desk.guides ? placed.displays : nil, initial: true) { _, shown in
+        .onChange(of: open && desk.guides && row.count > 1 ? placed.displays : nil, initial: true) { _, shown in
             if let shown { GuideOverlay.show(desk.row.map(\.id), shown) } else { GuideOverlay.hide() }
         }
         .onDisappear { GuideOverlay.hide() }
