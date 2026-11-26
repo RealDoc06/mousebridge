@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The menu's look: a dark window with titled sections over grouped cards.
@@ -35,7 +36,8 @@ struct Panel<Header: View, Content: View>: View {
     }
 }
 
-/// A card row with a label and a 0...1 level drawn as a meter, set by clicking or dragging along it.
+/// A card row with a label and a 0...1 level drawn as a meter, set by clicking or dragging along it, or with the
+/// arrow keys when Full Keyboard Access focuses it.
 struct LevelRow: View {
     let label: String
     let value: Double
@@ -50,7 +52,6 @@ struct LevelRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 40, alignment: .trailing)
         }
-        .accessibilityElement(children: .ignore)
         .accessibilityRepresentation { Slider(value: Binding(get: { value }, set: set)) { Text(label) } }
     }
 }
@@ -65,7 +66,7 @@ private struct Meter: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.track)
-                Capsule().fill(Color.accentColor).frame(width: max(6, geo.size.width * value))
+                Capsule().fill(Color.accentColor).frame(width: geo.size.width * min(max(value, 0), 1))
             }
             .frame(height: 6)
             .frame(maxHeight: .infinity)
@@ -76,6 +77,15 @@ private struct Meter: View {
             })
         }
         .frame(height: 16)
+        // Focusable only with Full Keyboard Access, like a native slider, so the popup doesn't open with a focus ring.
+        .focusable(NSApp.isFullKeyboardAccessEnabled)
+        .onMoveCommand { direction in
+            switch direction {
+            case .left, .down: set(max(value - 1 / 16, 0))
+            case .right, .up: set(min(value + 1 / 16, 1))
+            @unknown default: break
+            }
+        }
     }
 }
 

@@ -71,9 +71,8 @@ struct MenuView: View {
                 Text("Settings")
             } content: {
                 if !tap.running {
+                    Text("Needs Accessibility permission").foregroundStyle(.orange)
                     HStack {
-                        Text("Needs Accessibility").foregroundStyle(.orange)
-                        Spacer()
                         Button("Open Settings") {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
                         }
@@ -98,9 +97,10 @@ struct MenuView: View {
                     Divider()
                     Button("Quit MouseBridge") { NSApp.terminate(nil) }
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Label("More", systemImage: "ellipsis")
+                        .labelStyle(.iconOnly)
                         .frame(width: 26, height: 26)
-                        .background(Theme.card, in: .circle)
+                        .background(Color.white.opacity(0.1), in: .circle)
                         .contentShape(.circle)
                 }
                 .menuStyle(.button)
@@ -155,11 +155,15 @@ private struct MonitorControls: View {
                     }
                     Button("Rename", systemImage: "pencil") { draft = monitor.customName }.help("Rename")
                 }
+                .fontWeight(.regular)
                 .foregroundStyle(.secondary)
             }
         } content: {
             HStack {
-                Text(monitor.defaultName).font(.callout.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                // The display's own name, shown once it's renamed.
+                if !monitor.customName.isEmpty {
+                    Text(monitor.defaultName).font(.callout.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                }
                 Spacer()
                 Tag(text: monitor.usesDDC ? "DDC" : "Software")
                     .help(monitor.usesDDC ? "Brightness set on the display over DDC/CI" : "Brightness dimmed in software")
@@ -183,7 +187,8 @@ private struct MonitorControls: View {
 
 /// MenuBarExtra windows grow with their content but never shrink (seen on macOS 27): the smaller content is
 /// centered in the old frame, so the popup drops away from the menu bar and leaves a stale frame behind.
-/// Placed as a background, this sizes the window to the content's `height`, keeping its top edge.
+/// Placed as a background, this sizes the window to the content's `height`, keeping its top edge. It also gives
+/// the window the menu's dark appearance and rounder corners.
 private struct FitWindow: NSViewRepresentable {
     let height: CGFloat
 
@@ -199,6 +204,8 @@ private struct FitWindow: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             fit()
+            // Dark like the content, so the window border, menus and tooltips match in light mode too.
+            window?.appearance = NSAppearance(named: .darkAqua)
             // AppKit's private corner radius, which the window's mask and shadow both follow. KVC reaches
             // `_setCornerRadius:`; the check keeps a macOS without it on the default corners.
             guard let window, window.responds(to: NSSelectorFromString("_setCornerRadius:")) else { return }

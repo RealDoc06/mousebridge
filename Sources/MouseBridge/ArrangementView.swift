@@ -41,9 +41,11 @@ struct ArrangementView: View {
             }
             .buttonRepeatBehavior(.enabled)
             .foregroundStyle(.secondary)
+            .fontWeight(.regular)
             Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
                 .foregroundStyle(desk.guides ? .yellow : .secondary)
                 .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+                .fontWeight(.regular)
         } content: {
             canvas(target: target)
         }
