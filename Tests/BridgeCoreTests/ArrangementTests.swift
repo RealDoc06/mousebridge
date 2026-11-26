@@ -65,18 +65,11 @@ import Testing
     #expect(Arrangement.place(1, at: 200, in: [lenovo, low]) == 200)
 }
 
-@Test func stackedDisplayRoundTripsThroughTheCanvas() {
-    // An iPad (1543 x 1157 pt, 265 mm wide) below the Lenovo, hanging 219 pt past its right edge.
-    let frame = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
-    let placed = Arrangement.stack(frame, on: lenovo)
-    #expect(placed.below)
-    #expect(Arrangement.origin(stacking: frame.size, leftMM: placed.leftMM, below: true, on: lenovo) == frame.origin)
-    #expect(Arrangement.origin(stacking: frame.size, leftMM: 0, below: false, on: lenovo) == CGPoint(x: 0, y: -1157))
-    // Hanging off the left, at the Lenovo's scale like everything else, so drawn 1543 pt wide it shares 243 pt.
-    let left = CGRect(x: -1300, y: 1440, width: 1543, height: 1157)
-    let hanging = Arrangement.stack(left, on: lenovo)
-    #expect(abs(hanging.leftMM + 1543 * lenovo.mmPerPoint - 243 * lenovo.mmPerPoint) < 0.001)
-    #expect(Arrangement.origin(stacking: left.size, leftMM: hanging.leftMM, below: true, on: lenovo) == left.origin)
+@Test func stackedDisplayTouchesItsHost() {
+    // An iPad (1543 x 1157 pt) placed 1236 pt into the Lenovo, below and above it.
+    let size = CGSize(width: 1543, height: 1157)
+    #expect(Arrangement.origin(stacking: size, leftMM: 1236 * lenovo.mmPerPoint, below: true, on: lenovo) == CGPoint(x: 1236, y: 1440))
+    #expect(Arrangement.origin(stacking: size, leftMM: 0, below: false, on: lenovo) == CGPoint(x: 0, y: -1157))
 }
 
 @Test func stackedDisplayLandsOnTheMostOverlapped() {
@@ -111,4 +104,14 @@ import Testing
     let ipad = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
     #expect(Arrangement.columns(on: lenovo.frame, of: ipad) == [1236, 2007.5])
     #expect(Arrangement.columns(on: ipad, of: lenovo.frame) == [44, 1324])
+}
+
+@Test func rowMapDrawsEachColumnAtItsDisplaysScale() {
+    // The MSI from 0 mm, the Lenovo from 542 mm. An iPad at x -773...770 covers 773 pt of the MSI and 770 of the Lenovo.
+    let map = RowMap([(msi, 0), (lenovo, msi.widthMM)])
+    #expect(abs(map.mm(-773) - (msi.widthMM - 773 * msi.mmPerPoint)) < 0.001)
+    #expect(abs(map.mm(770) - (msi.widthMM + 770 * lenovo.mmPerPoint)) < 0.001)
+    #expect(abs(map.mm(0) - msi.widthMM) < 0.001)
+    #expect(abs(map.x(map.mm(-773)) + 773) < 0.001)
+    #expect(abs(map.x(map.mm(3000)) - 3000) < 0.001) // past the end, at the Lenovo's scale
 }

@@ -5,18 +5,18 @@ import SwiftUI
 /// Lines drawn over the real displays while arranging with guides on, in the color of the display they come from
 /// (`color(_:)`, also marked on its tile). Each row display shows the top, center and bottom of the others at their
 /// physical height (`Arrangement.guides(on:in:)`), so a line that runs level into that display's actual bezel edge
-/// means the arrangement matches the desk. A stacked display and its host show each other's left edge, center and
-/// right edge as columns (`Arrangement.columns(on:of:)`), the same check across a top or bottom edge. Clicks pass
+/// means the arrangement matches the desk. A stacked display and each display it touches show each other's left
+/// edge, center and right edge as columns (`Arrangement.columns(on:of:)`), the same check across a top or bottom edge. Clicks pass
 /// through.
 @MainActor
 enum GuideOverlay {
     /// A display stacked above or below the row: its frame, the frame it's being dragged to (the same when it isn't),
-    /// and the index in the row of the display it sits on there.
+    /// and the indices in the row of the displays whose edge it touches there.
     struct Stacked: Equatable {
         let id: CGDirectDisplayID
         let frame: CGRect
         let placed: CGRect
-        let host: Int
+        let touching: [Int]
     }
 
     private static var panels: [CGDirectDisplayID: NSPanel] = [:]
@@ -38,15 +38,17 @@ enum GuideOverlay {
         }
         for (i, id) in ids.enumerated() {
             let rows = Arrangement.guides(on: i, in: displays).map { Line(at: $0.row, vertical: false, source: $0.source) }
-            let columns = stacked.enumerated().filter { $1.host == i }.flatMap { k, s in
+            let columns = stacked.enumerated().filter { $1.touching.contains(i) }.flatMap { k, s in
                 Arrangement.columns(on: displays[i].frame, of: s.placed).map { Line(at: $0, vertical: true, source: ids.count + k) }
             }
             draw(rows + columns, on: id, at: displays[i].frame)
         }
-        // On the stacked display as it is now, where its host's edges will fall once it's moved.
+        // On the stacked display as it is now, where the edges of the displays it touches will fall once it's moved.
         for s in stacked {
-            let columns = Arrangement.columns(on: s.placed, of: displays[s.host].frame)
-            draw(columns.map { Line(at: $0, vertical: true, source: s.host) }, on: s.id, at: s.frame)
+            let columns = s.touching.flatMap { h in
+                Arrangement.columns(on: s.placed, of: displays[h].frame).map { Line(at: $0, vertical: true, source: h) }
+            }
+            draw(columns, on: s.id, at: s.frame)
         }
     }
 
