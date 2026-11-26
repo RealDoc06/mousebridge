@@ -68,13 +68,13 @@ final class Desk {
         onChange?(screens.map(\.display))
     }
 
-    /// Moves a display's physical top and saves the arrangement. Tops stay on one axis across saves, so
+    /// Moves a display's physical top and saves the row's arrangement. Tops stay on one axis across saves, so
     /// displays disconnected meanwhile keep their place relative to the rest.
     func setTop(_ top: CGFloat, of id: CGDirectDisplayID) {
         guard let i = screens.firstIndex(where: { $0.id == id }) else { return }
         screens[i].display.topMM = top
         var saved = UserDefaults.standard.dictionary(forKey: Self.topsKey) as? [String: Double] ?? [:]
-        for s in screens { saved[s.key] = s.display.topMM }
+        for s in row { saved[s.key] = s.display.topMM }
         UserDefaults.standard.set(saved, forKey: Self.topsKey)
         onChange?(screens.map(\.display))
     }
