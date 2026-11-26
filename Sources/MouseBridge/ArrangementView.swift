@@ -37,22 +37,28 @@ struct ArrangementView: View {
         Panel {
             Text("Arrangement")
             Spacer()
-            Group {
-                Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
-                    .help("Move the selected display up a pixel")
-                Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
-                    .help("Move the selected display down a pixel")
-            }
-            .buttonRepeatBehavior(.enabled)
-            .foregroundStyle(.secondary)
-            .fontWeight(.regular)
-            Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
-                .foregroundStyle(desk.guides ? .yellow : .secondary)
-                .help(desk.guides ? "Hide guides" : "Show guides on the displays")
-                .fontWeight(.regular)
+            // A display alone in the row has nothing to nudge against or line up with.
+            if desk.row.count > 1 { controls(target: target) }
         } content: {
             canvas(target: target)
         }
+    }
+
+    /// The arrows that nudge the selected display a pixel, and the guides toggle.
+    @ViewBuilder private func controls(target: CGDirectDisplayID?) -> some View {
+        Group {
+            Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
+                .help("Move the selected display up a pixel")
+            Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
+                .help("Move the selected display down a pixel")
+        }
+        .buttonRepeatBehavior(.enabled)
+        .foregroundStyle(.secondary)
+        .fontWeight(.regular)
+        Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+            .foregroundStyle(desk.guides ? .yellow : .secondary)
+            .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+            .fontWeight(.regular)
     }
 
     private func canvas(target: CGDirectDisplayID?) -> some View {
@@ -177,7 +183,8 @@ struct ArrangementView: View {
 
     /// Where a stacked display sits against its host or, dragged by `offset`, where it lands: along the row (kept
     /// over it, or where it already hangs, and within the canvas `span`), against the display it overlaps most, on
-    /// the side its center is on, clear of that display's neighbors. It's drawn from the frame that gives in macOS, the way the menu shows it after.
+    /// the side its center is on, clear of that display's neighbors. It's drawn from the macOS frame that results,
+    /// as the menu shows it once applied.
     private func place(
         _ s: Desk.Stacked, offset: CGSize?, row: [Display], lefts: [CGFloat], span: ClosedRange<CGFloat>, scale: CGFloat
     ) -> Placement {

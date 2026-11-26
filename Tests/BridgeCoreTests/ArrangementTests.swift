@@ -101,5 +101,6 @@ import Testing
     // A 1543 pt iPad above a 1280 pt display whose taller neighbors both reach into those rows.
     let host = Display(frame: CGRect(x: 0, y: 360, width: 1280, height: 720), widthMM: 300)
     let neighbors = [CGRect(x: -1000, y: 0, width: 1000, height: 1080), CGRect(x: 1280, y: 0, width: 1000, height: 1080)]
-    #expect(Arrangement.origin(stacking: Display(frame: CGRect(x: 0, y: 0, width: 1543, height: 1157), widthMM: 265), leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
+    let ipad = Display(frame: CGRect(x: 0, y: 0, width: 1543, height: 1157), widthMM: 265)
+    #expect(Arrangement.origin(stacking: ipad, leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
 }
