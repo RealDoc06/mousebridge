@@ -20,7 +20,7 @@ public struct Display: Sendable, Equatable {
 }
 
 /// Preset ways side-by-side displays line up on the desk. Seeds `Display.topMM` for displays not yet arranged.
-public enum Alignment: String, Sendable, CaseIterable {
+public enum Alignment: String, Sendable {
     case top, center, bottom
 
     /// Top edge of a display `heightMM` tall, measured down from the top of one `tallestMM` tall.

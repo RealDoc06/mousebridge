@@ -10,7 +10,8 @@ struct ArrangementView: View {
     let names: [CGDirectDisplayID: String]
     let width: CGFloat
 
-    @State private var drag: Drag?
+    /// Resets by itself when a drag ends or is cancelled, e.g. by the popup closing.
+    @GestureState private var drag: Drag?
 
     private struct Drag: Equatable {
         let id: CGDirectDisplayID
@@ -22,36 +23,35 @@ struct ArrangementView: View {
 
     var body: some View {
         let scale = width / desk.screens.map(\.display.widthMM).reduce(0, +)
-        let (displays, order) = arranged(scale: scale)
-        let home = lefts(Array(displays.indices)), slots = lefts(order)
-        // The canvas is framed around the saved arrangement, so it holds still while a display is dragged.
+        let placed = arranged(drag, scale: scale)
+        let slots = lefts(placed.order)
+        // Framed around the saved arrangement with room for any drag, so it holds still while one moves.
         let saved = desk.screens.map(\.display)
-        let top = saved.map(\.topMM).min() ?? 0
-        let bottom = saved.map { $0.topMM + $0.heightMM }.max() ?? 0
-        let heightMM = max((saved.map(\.heightMM).max() ?? 0) * 1.5, bottom - top)
-        let originMM = (top + bottom - heightMM) / 2
+        let pad = (saved.map(\.heightMM).max() ?? 0) * Arrangement.overhang
+        let originMM = (saved.map(\.topMM).min() ?? 0) - pad
+        let heightMM = (saved.map { $0.topMM + $0.heightMM }.max() ?? 0) + pad - originMM
 
         ZStack(alignment: .topLeading) {
             ForEach(Array(desk.screens.enumerated()), id: \.element.id) { i, screen in
-                let d = displays[i]
+                let d = placed.displays[i]
                 let dragged = drag?.id == screen.id
-                // The dragged display follows the pointer; the others slide into the order it makes.
-                let x = dragged ? home[i] + (drag?.offset.width ?? 0) / scale : slots[i]
                 tile(d, name: names[screen.id] ?? "Display", dragged: dragged)
                     .frame(width: d.widthMM * scale, height: d.heightMM * scale)
-                    .offset(x: min(max(x * scale, 0), width - d.widthMM * scale), y: (d.topMM - originMM) * scale)
-                    .animation(dragged ? nil : .snappy(duration: 0.2), value: order)
+                    .offset(x: (dragged ? placed.left : slots[i]) * scale, y: (d.topMM - originMM) * scale)
+                    .zIndex(dragged ? 1 : 0)
+                    .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
                     .gesture(
                         DragGesture(minimumDistance: 1)
-                            .onChanged { drag = Drag(id: screen.id, offset: $0.translation) }
-                            .onEnded { _ in commit(scale: scale) }
+                            .updating($drag) { value, drag, _ in drag = Drag(id: screen.id, offset: value.translation) }
+                            .onEnded { commit(Drag(id: screen.id, offset: $0.translation), scale: scale) }
                     )
             }
             if desk.guides {
-                ForEach(Arrangement.guides(displays), id: \.self) { mm in
+                ForEach(Arrangement.guides(placed.displays), id: \.self) { mm in
                     Rectangle().fill(.yellow)
                         .frame(width: width, height: 1)
                         .offset(y: (mm - originMM) * scale - 0.5)
+                        .zIndex(2)
                         .allowsHitTesting(false)
                 }
             }
@@ -78,20 +78,21 @@ struct ArrangementView: View {
             .contentShape(Rectangle())
     }
 
-    /// The displays with the dragged one moved, and the left-to-right order (indices into `desk.screens`)
-    /// its horizontal position gives.
-    private func arranged(scale: CGFloat) -> (displays: [Display], order: [Int]) {
+    /// The displays with the dragged one moved, the left-to-right order (indices into `desk.screens`) its
+    /// horizontal position gives, and its left edge in mm. Without a drag, the saved arrangement.
+    private func arranged(_ drag: Drag?, scale: CGFloat) -> (displays: [Display], order: [Int], left: CGFloat) {
         var displays = desk.screens.map(\.display)
         let identity = Array(displays.indices)
-        guard let drag, let i = desk.screens.firstIndex(where: { $0.id == drag.id }) else { return (displays, identity) }
+        guard let drag, let i = desk.screens.firstIndex(where: { $0.id == drag.id }) else { return (displays, identity, 0) }
         displays[i].topMM = Arrangement.place(
             i, at: displays[i].topMM + drag.offset.height / scale, in: displays,
             snapMM: desk.guides ? Self.snapPoints / scale : nil
         )
-        guard desk.canReorder else { return (displays, identity) }
-        let home = lefts(identity)
-        let center = { (j: Int) in home[j] + displays[j].widthMM / 2 + (j == i ? drag.offset.width / scale : 0) }
-        return (displays, identity.sorted { center($0) < center($1) })
+        // Without reordering, the display only moves up and down.
+        guard desk.canReorder else { return (displays, identity, lefts(identity)[i]) }
+        let widths = displays.map(\.widthMM)
+        let left = min(max(lefts(identity)[i] + drag.offset.width / scale, 0), widths.reduce(0, +) - widths[i])
+        return (displays, Arrangement.order(widths: widths, dragging: i, toLeft: left), left)
     }
 
     /// Left edge (mm) of each display when laid out in `order`, indexed like `desk.screens`.
@@ -105,13 +106,12 @@ struct ArrangementView: View {
         return lefts
     }
 
-    private func commit(scale: CGFloat) {
-        guard let id = drag?.id, let i = desk.screens.firstIndex(where: { $0.id == id }) else { return }
-        let (displays, order) = arranged(scale: scale)
+    private func commit(_ drag: Drag, scale: CGFloat) {
+        guard let i = desk.screens.firstIndex(where: { $0.id == drag.id }) else { return }
+        let placed = arranged(drag, scale: scale)
         withAnimation(.snappy(duration: 0.2)) {
-            desk.setTop(displays[i].topMM, of: id)
-            if order != Array(displays.indices) { desk.reorder(order.map { desk.screens[$0].id }) }
-            drag = nil
+            desk.setTop(placed.displays[i].topMM, of: drag.id)
+            if placed.order != Array(placed.displays.indices) { desk.reorder(placed.order.map { desk.screens[$0].id }) }
         }
     }
 }

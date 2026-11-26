@@ -17,9 +17,9 @@ let bottomTop = msi.topMM
 }
 
 @Test func dragStaysBesideTheOthers() {
-    let half = msi.heightMM / 2
-    #expect(Arrangement.place(1, at: -500, in: [lenovo, msi]) == -half)
-    #expect(Arrangement.place(1, at: 900, in: [lenovo, msi]) == lenovo.heightMM - half)
+    let reach = msi.heightMM * Arrangement.overhang
+    #expect(Arrangement.place(1, at: -500, in: [lenovo, msi]) == -reach)
+    #expect(abs(Arrangement.place(1, at: 900, in: [lenovo, msi]) - (lenovo.heightMM + reach - msi.heightMM)) < 0.001)
     #expect(Arrangement.place(0, at: 42, in: [lenovo]) == 42)
 }
 
@@ -31,4 +31,13 @@ let bottomTop = msi.topMM
     var loose = msi
     loose.topMM = bottomTop - 10
     #expect(Arrangement.guides([lenovo, loose]).isEmpty)
+}
+
+@Test func wideDisplaySwapsBeforeTheRowEnds() {
+    // A 27" (602 mm) left of a 14" laptop (302 mm): the 27" fits at left 0...302 and swaps past 151.
+    #expect(Arrangement.order(widths: [602, 302], dragging: 0, toLeft: 150) == [0, 1])
+    #expect(Arrangement.order(widths: [602, 302], dragging: 0, toLeft: 152) == [1, 0])
+    // The laptop, starting at 602, swaps once its left edge passes the 27"'s midpoint.
+    #expect(Arrangement.order(widths: [602, 302], dragging: 1, toLeft: 302) == [0, 1])
+    #expect(Arrangement.order(widths: [602, 302], dragging: 1, toLeft: 300) == [1, 0])
 }

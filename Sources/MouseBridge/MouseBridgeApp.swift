@@ -52,14 +52,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuView: View {
     let monitors: Monitors
-    @Bindable var desk: Desk
+    let desk: Desk
     @Bindable var tap: EventTap
     let updater: SPUUpdater
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if desk.screens.count > 1 {
+            if desk.screens.count > 1, desk.isRow {
                 HStack {
                     Text("Arrangement").font(.headline)
                     Spacer()
@@ -184,7 +184,8 @@ private struct FitWindow: NSViewRepresentable {
     func makeNSView(context: Context) -> FitView { FitView() }
     func updateNSView(_ view: FitView, context: Context) {
         view.height = height
-        view.fit()
+        // Resizing the window inside SwiftUI's update pass could re-enter layout, so it waits a turn.
+        DispatchQueue.main.async { view.fit() }
     }
 
     final class FitView: NSView {
@@ -193,9 +194,11 @@ private struct FitWindow: NSViewRepresentable {
         override func viewDidMoveToWindow() { fit() }
 
         func fit() {
-            guard let window, height > 0, abs(window.frame.height - height) > 0.5 else { return }
+            guard let window, height > 0 else { return }
             let frame = window.frame
-            window.setFrame(CGRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height), display: true)
+            let fitted = window.frameRect(forContentRect: CGRect(x: 0, y: 0, width: frame.width, height: height)).height
+            guard abs(frame.height - fitted) > 0.5 else { return }
+            window.setFrame(CGRect(x: frame.minX, y: frame.maxY - fitted, width: frame.width, height: fitted), display: true)
         }
     }
 }
