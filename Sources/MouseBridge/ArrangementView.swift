@@ -266,7 +266,7 @@ struct ArrangementView: View {
                                 let drag = Drag(id: s.screen.id, value)
                                 if let end = dock(drag, in: base) { return dockBeside(s, at: end) }
                                 let p = place(s, offset: drag.offset, row: placed.displays, lefts: rowLefts, map: map, span: f.span, scale: f.scale)
-                                guard p.frame.origin != d.frame.origin || p.left != d.leftMM else { return }
+                                guard p.frame.origin != d.frame.origin || abs(p.left - d.leftMM) > 0.01 else { return }
                                 if p.frame.origin != d.frame.origin { desk.move(s.screen.id, to: p.frame.origin) }
                                 // Saved even when only macOS moved, so where it was dragged to sticks.
                                 desk.setLeft(p.left, of: s.screen.id)
@@ -393,6 +393,8 @@ struct ArrangementView: View {
         let h = abs(offset.width) < Self.snapPoints ? s.host
             : Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
         let below = unmoved.top + d.heightMM / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
+        // Same spot, same side (a click, or a short drag that settles back): nothing moves.
+        if abs(moved - left) < 0.5, below == (d.frame.midY > row[s.host].frame.midY) { return unmoved }
         let x = map.x(moved + d.widthMM / 2) - d.frame.width / 2
         // Where it can't fit in macOS, it stays where it was.
         guard let origin = Arrangement.origin(

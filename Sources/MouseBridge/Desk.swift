@@ -146,7 +146,8 @@ final class Desk {
             guard let h = screens.first(where: { $0.id == stackedHosts[screens[i].id] }) else { continue }
             let x = screens[i].display.frame.minX - h.display.frame.minX
             let offset = placed[screens[i].key].flatMap { $0.host == h.key && abs($0.x - x) < 1 ? CGFloat($0.offset) : nil }
-            screens[i].display.leftMM = h.display.leftMM + (offset ?? x * h.display.mmPerPoint)
+            screens[i].display.leftMM = h.display.leftMM
+                + (offset ?? Arrangement.defaultLeft(of: screens[i].display.frame, widthMM: screens[i].display.widthMM, on: h.display))
         }
         self.screens = screens
         canReorder = rowIDs.count + stackedHosts.count == active.count

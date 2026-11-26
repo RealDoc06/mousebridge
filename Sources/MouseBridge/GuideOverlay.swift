@@ -6,8 +6,8 @@ import SwiftUI
 /// (`color(_:)`, also marked on its tile). Each row display shows the top, center and bottom of the others at their
 /// physical height (`Arrangement.guides(on:in:)`), so a line that runs level into that display's actual bezel edge
 /// means the arrangement matches the desk. A stacked display and each row display in front of it show each other's
-/// left edge, center and right edge as columns at their physical positions along the desk (`Arrangement.columns(on:of:)`), the same check across a top or bottom edge. Clicks pass
-/// through.
+/// left edge, center and right edge as columns at their physical positions along the desk
+/// (`Arrangement.columns(on:of:)`), the same check across a top or bottom edge. Clicks pass through.
 @MainActor
 enum GuideOverlay {
     /// A display stacked above or below the row: its frame, where it's being dragged to along the desk (as it is

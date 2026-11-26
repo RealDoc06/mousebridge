@@ -119,3 +119,13 @@ import Testing
     #expect(abs(map.x(map.mm(-773)) + 773) < 0.001)
     #expect(abs(map.x(map.mm(3000)) - 3000) < 0.001) // past the end, at the Lenovo's scale
 }
+
+@Test func defaultSpotKeepsTheOverlapMacOSHas() {
+    // An iPad (1543 pt, 265 mm) hanging off the Lenovo's left edge, sharing 243 pt (57 mm at the Lenovo's scale):
+    // at the Lenovo's scale alone it would sit entirely left of it.
+    let left = Arrangement.defaultLeft(of: CGRect(x: -1300, y: 1440, width: 1543, height: 1157), widthMM: 265, on: lenovo)
+    #expect(abs(left + 265 - 243 * lenovo.mmPerPoint) < 0.001)
+    // Under it, it's simply where macOS has it at the Lenovo's scale.
+    let under = Arrangement.defaultLeft(of: CGRect(x: 1017, y: 1440, width: 1543, height: 1157), widthMM: 265, on: lenovo)
+    #expect(abs(under - 1017 * lenovo.mmPerPoint) < 0.001)
+}

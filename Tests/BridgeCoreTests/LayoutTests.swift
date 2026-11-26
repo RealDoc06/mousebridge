@@ -143,3 +143,17 @@ private func stackedDesk(below: Bool = true) -> (layout: Layout, ipad: Display) 
     let down = try #require(layout.remap(from: CGPoint(x: up.x, y: -3), to: CGPoint(x: up.x, y: -1), delta: CGVector(dx: 0, dy: 2)))
     #expect(abs(down.x - x) < 0.01 && down.y == Layout.landingInset)
 }
+
+@Test func stackedDisplayUnderTheSeamCrossesBackToEitherSide() throws {
+    // The iPad physically under the seam: 400...665 mm along the desk, the MSI ending at 542 mm.
+    var m = msi, l = lenovo
+    l.leftMM = m.widthMM
+    let ipad = Display(frame: CGRect(x: -773, y: 1440, width: 1543, height: 1157), widthMM: 265, leftMM: 400)
+    let layout = Layout(displays: [l, m], row: [m, l], stacked: [.init(ipad, below: true)])
+    let up = { (mm: CGFloat) in
+        let x = ipad.frame.minX + (mm - 400) / ipad.mmPerPoint
+        return layout.remap(from: CGPoint(x: x, y: 1442), to: CGPoint(x: x, y: 1440), delta: CGVector(dx: 0, dy: -2))
+    }
+    #expect(try #require(up(450)).x < 0) // onto the MSI
+    #expect(try #require(up(600)).x >= 0) // onto the Lenovo
+}
