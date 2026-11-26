@@ -63,3 +63,18 @@ import Testing
     low.topMM = 200
     #expect(Arrangement.place(1, at: 200, in: [lenovo, low]) == 200)
 }
+
+@Test func stackedDisplayRoundTripsThroughTheCanvas() {
+    // An iPad (1543 x 1157 pt, 265 mm wide) below the Lenovo, hanging 219 pt past its right edge.
+    let frame = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
+    let placed = Arrangement.stack(frame, on: lenovo)
+    #expect(placed.below)
+    #expect(Arrangement.origin(stacking: frame.size, leftMM: placed.leftMM, below: true, on: lenovo) == frame.origin)
+    #expect(Arrangement.origin(stacking: frame.size, leftMM: 0, below: false, on: lenovo) == CGPoint(x: 0, y: -1157))
+}
+
+@Test func stackedDisplayLandsOnTheMostOverlapped() {
+    let row: [(left: CGFloat, width: CGFloat)] = [(0, 542), (542, 602)]
+    #expect(Arrangement.host(left: 420, width: 265, in: row) == 1)
+    #expect(Arrangement.host(left: 300, width: 265, in: row) == 0)
+}

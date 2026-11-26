@@ -65,6 +65,25 @@ public enum Arrangement {
         return rows.filter { (-0.5...(d.frame.height + 0.5)).contains($0) }
     }
 
+    /// Where a display stacked above or below `host` sits against it: its left edge in mm from the host's left edge
+    /// (at the host's scale), and whether it is below. Only the macOS arrangement matters for these displays.
+    public static func stack(_ frame: CGRect, on host: Display) -> (leftMM: CGFloat, below: Bool) {
+        ((frame.minX - host.frame.minX) * host.mmPerPoint, frame.midY > host.frame.midY)
+    }
+
+    /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
+    /// its bottom or top. The inverse of `stack`.
+    public static func origin(stacking size: CGSize, leftMM: CGFloat, below: Bool, on host: Display) -> CGPoint {
+        CGPoint(x: (host.frame.minX + leftMM / host.mmPerPoint).rounded(), y: below ? host.frame.maxY : host.frame.minY - size.height)
+    }
+
+    /// The display (index into `spans`, each a left edge and width) that a span from `left`, `width` wide, overlaps
+    /// the most: the one a dragged stacked display lands on.
+    public static func host(left: CGFloat, width: CGFloat, in spans: [(left: CGFloat, width: CGFloat)]) -> Int? {
+        let overlap = { (s: (left: CGFloat, width: CGFloat)) in min(left + width, s.left + s.width) - max(left, s.left) }
+        return spans.indices.max { overlap(spans[$0]) < overlap(spans[$1]) }
+    }
+
     /// Top, center and bottom of a display `height` tall, relative to its top.
     private static func levels(of height: CGFloat) -> [CGFloat] { [0, height / 2, height] }
 }

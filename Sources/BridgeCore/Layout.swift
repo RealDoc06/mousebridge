@@ -87,6 +87,11 @@ public struct Layout: Sendable {
         abs(b.minX - a.maxX) < 1 && a.minY < b.maxY && b.minY < a.maxY
     }
 
+    /// True when `b` sits directly below `a` in global points with columns in common: an edge macOS itself crosses.
+    public static func stacks(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(b.minY - a.maxY) < 1 && a.minX < b.maxX && b.minX < a.maxX
+    }
+
     /// Vertical distance in mm from `mm` to `d`'s physical span, 0 when inside it.
     private func gap(_ mm: CGFloat, _ d: Display) -> CGFloat {
         max(d.topMM - mm, mm - (d.topMM + d.heightMM), 0)

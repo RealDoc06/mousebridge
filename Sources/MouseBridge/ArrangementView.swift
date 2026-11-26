@@ -4,7 +4,9 @@ import SwiftUI
 /// The side-by-side displays (`Desk.row`) at real scale, as on the desk. Dragging one up or down sets where it physically
 /// sits, which the cursor bridge maps crossings by, and the arrows nudge the selected one a pixel at a time.
 /// Dragging one past a neighbor reorders macOS's arrangement. With guides on, drags snap to aligned edges and
-/// `GuideOverlay` draws the guides on the real displays.
+/// `GuideOverlay` draws the guides on the real displays. Displays stacked above or below the row (`Desk.stacked`)
+/// sit against the one they touch, and dragging one moves it along that edge, onto another display, or to the
+/// other side, in macOS's arrangement only.
 struct ArrangementView: View {
     let desk: Desk
     /// Label for each display, by display ID.
@@ -52,12 +54,20 @@ struct ArrangementView: View {
     }
 
     private func canvas(target: CGDirectDisplayID?) -> some View {
-        let scale = width / desk.row.map(\.display.widthMM).reduce(0, +)
+        let rowWidth = desk.row.map(\.display.widthMM).reduce(0, +)
+        // Room for stacked displays hanging past their host's sides, wherever the host moves.
+        let stacked = desk.stacked.map { s in (s, Arrangement.stack(s.screen.display.frame, on: desk.row[s.host].display)) }
+        let padLeft = stacked.map { -$1.leftMM }.reduce(0, max)
+        let padRight = stacked.map { s, base in base.leftMM + s.screen.display.widthMM - desk.row[s.host].display.widthMM }.reduce(0, max)
+        let scale = width / (padLeft + rowWidth + padRight)
         let placed = arranged(drag, scale: scale)
         let slots = lefts(placed.order)
-        // Framed on the saved arrangement with room for any drag, so it holds still while one moves.
+        let rowLefts = desk.row.indices.map { drag?.id == desk.row[$0].id ? placed.left : slots[$0] }
+        // Framed on the saved arrangement with room for any drag, so it holds still while one moves. Stacked
+        // displays get room above and below, since one can be dragged to either side.
         let bounds = Arrangement.bounds(desk.row.map(\.display))
-        let originMM = bounds.lowerBound, heightMM = bounds.upperBound - bounds.lowerBound
+        let tallest = stacked.map(\.0.screen.display.heightMM).max() ?? 0
+        let originMM = bounds.lowerBound - tallest, heightMM = bounds.upperBound - bounds.lowerBound + 2 * tallest
 
         return ZStack(alignment: .topLeading) {
             ForEach(Array(desk.row.enumerated()), id: \.element.id) { i, screen in
@@ -65,7 +75,7 @@ struct ArrangementView: View {
                 let dragged = drag?.id == screen.id
                 tile(d, name: names[screen.id] ?? "Display", dragged: dragged, selected: screen.id == target)
                     .frame(width: d.widthMM * scale, height: d.heightMM * scale)
-                    .offset(x: (dragged ? placed.left : slots[i]) * scale, y: (d.topMM - originMM) * scale)
+                    .offset(x: (padLeft + rowLefts[i]) * scale, y: (d.topMM - originMM) * scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
                     .onTapGesture { selected = screen.id }
@@ -75,6 +85,27 @@ struct ArrangementView: View {
                             .onEnded {
                                 selected = screen.id
                                 commit(Drag(id: screen.id, offset: $0.translation), scale: scale)
+                            }
+                    )
+            }
+            ForEach(stacked, id: \.0.screen.id) { s, base in
+                let d = s.screen.display
+                let dragged = drag?.id == s.screen.id
+                let p = stack(s.host, base, size: d, drag: dragged ? drag : nil, row: placed.displays, lefts: rowLefts, scale: scale)
+                tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false)
+                    .frame(width: d.widthMM * scale, height: d.heightMM * scale)
+                    .offset(x: (padLeft + p.left) * scale, y: (p.top - originMM) * scale)
+                    .zIndex(dragged ? 1 : 0)
+                    .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .updating($drag) { value, drag, _ in drag = Drag(id: s.screen.id, offset: value.translation) }
+                            .onEnded {
+                                let p = stack(s.host, base, size: d, drag: Drag(id: s.screen.id, offset: $0.translation),
+                                              row: placed.displays, lefts: rowLefts, scale: scale)
+                                let origin = Arrangement.origin(stacking: d.frame.size, leftMM: p.left - rowLefts[p.host],
+                                                                below: p.below, on: desk.row[p.host].display)
+                                if origin != d.frame.origin { desk.move(s.screen.id, to: origin) }
                             }
                     )
             }
@@ -128,6 +159,23 @@ struct ArrangementView: View {
         let widths = displays.map(\.widthMM)
         let left = min(max(lefts(identity)[i] + drag.offset.width / scale, 0), widths.reduce(0, +) - widths[i])
         return (displays, Arrangement.order(widths: widths, dragging: i, toLeft: left), left)
+    }
+
+    /// Where a stacked display sits (mm, row starts at 0): against `host` at `base`, or with a drag, wherever along
+    /// the row it's dragged, kept overlapping it, on the display it overlaps most and the side its center is on.
+    private func stack(
+        _ host: Int, _ base: (leftMM: CGFloat, below: Bool), size d: Display, drag: Drag?,
+        row: [Display], lefts: [CGFloat], scale: CGFloat
+    ) -> (host: Int, left: CGFloat, top: CGFloat, below: Bool) {
+        let top = { (h: Int, below: Bool) in below ? row[h].topMM + row[h].heightMM : row[h].topMM - d.heightMM }
+        let left = lefts[host] + base.leftMM
+        guard let drag else { return (host, left, top(host, base.below), base.below) }
+        let span = row.map(\.widthMM).reduce(0, +) - d.widthMM
+        let moved = min(max(left + drag.offset.width / scale, min(0, span, left)), max(0, span, left))
+        let h = Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? host
+        let center = top(host, base.below) + d.heightMM / 2 + drag.offset.height / scale
+        let below = center > row[h].topMM + row[h].heightMM / 2
+        return (h, moved, top(h, below), below)
     }
 
     /// Left edge (mm) of each display when laid out in `order`, indexed like `desk.row`.
