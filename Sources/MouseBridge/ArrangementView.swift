@@ -82,9 +82,11 @@ struct ArrangementView: View {
         var displays = desk.row.map(\.display)
         let identity = Array(displays.indices)
         guard let drag, let i = desk.row.firstIndex(where: { $0.id == drag.id }) else { return (displays, identity, 0) }
-        // A sideways drag that wobbles less than the snap reach keeps the saved top, rather than snapping it to a guide.
-        let sideways = abs(drag.offset.height) < Self.snapPoints && abs(drag.offset.width) > abs(drag.offset.height)
-        if !sideways {
+        // A reorder drag that wobbles less than the snap reach keeps the saved top, and so does one that ends level,
+        // rather than snapping the top to a guide.
+        let dx = abs(drag.offset.width), dy = abs(drag.offset.height)
+        let sideways = desk.canReorder && dy < Self.snapPoints && dx > dy
+        if dy > 0, !sideways {
             displays[i].topMM = Arrangement.place(
                 i, at: displays[i].topMM + drag.offset.height / scale, in: displays,
                 snapMM: desk.guides ? Self.snapPoints / scale : nil
