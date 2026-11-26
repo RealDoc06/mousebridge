@@ -91,6 +91,12 @@ public enum Arrangement {
         return min(max(centered, overlap - widthMM), host.widthMM - overlap)
     }
 
+    /// True when a display `widthMM` wide at `left` along the desk is in front of some display in `row`, so the cursor
+    /// can cross to it.
+    public static func faces(_ left: CGFloat, widthMM: CGFloat, row: [Display]) -> Bool {
+        row.contains { $0.leftMM < left + widthMM && left < $0.leftMM + $0.widthMM }
+    }
+
     /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
     /// its bottom or top. It slides clear of `others` (the host's row neighbors) where they
     /// reach into its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.

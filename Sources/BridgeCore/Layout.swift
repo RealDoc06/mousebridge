@@ -147,7 +147,8 @@ public struct Layout: Sendable {
 
     /// Distance in points from `p` to the nearest edge the bridge handles, or nil when there is none: where two
     /// displays sit side by side (spanning the full height of both, since `remap` clamps onto the shorter one), and
-    /// the edges between the row and a stacked display, all along them, since the cursor may cross anywhere.
+    /// the edges between the row and a stacked display (those in front of it or touching it in macOS, and its own),
+    /// all along them, since the cursor may cross anywhere there.
     public func distanceToSharedEdge(_ p: CGPoint) -> CGFloat? {
         let sides = displays.flatMap { a in
             displays.filter { Self.borders(a.frame, $0.frame) }.map { b in

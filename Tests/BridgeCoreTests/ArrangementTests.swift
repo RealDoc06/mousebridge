@@ -129,3 +129,11 @@ import Testing
     let under = Arrangement.defaultLeft(of: CGRect(x: 1017, y: 1440, width: 1543, height: 1157), widthMM: 265, on: lenovo)
     #expect(abs(under - (1788.5 * lenovo.mmPerPoint - 132.5)) < 0.001)
 }
+
+@Test func savedSpotMustStillFaceTheRow() {
+    var m = msi, l = lenovo
+    l.leftMM = m.widthMM
+    m.leftMM = 0
+    #expect(Arrangement.faces(1000, widthMM: 265, row: [m, l])) // under the Lenovo's right part
+    #expect(!Arrangement.faces(1200, widthMM: 265, row: [m, l])) // past the row's right end at 1144 mm
+}

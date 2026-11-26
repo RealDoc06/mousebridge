@@ -366,9 +366,10 @@ struct ArrangementView: View {
 
     /// Where a stacked display sits or, dragged by `offset`, where it lands: physically, at its place along the row
     /// (its center kept over it, or where it already hangs; the canvas re-frames to fit) against the row displays in
-    /// front of it, on the side its center is on. In macOS it goes against the display it overlaps most, centered on the same
-    /// spot as far as points allow (`map`) and clear of that display's neighbors; the cursor bridge crosses to it by
-    /// its physical place, wherever macOS has it.
+    /// front of it, on the side its center is on. In macOS it goes against the display it overlaps most, centered on
+    /// the same spot as far as points allow (`map`) and clear of that display's neighbors; with no room there, it
+    /// keeps its macOS spot on the same side and stays put across. The cursor bridge crosses to it by its physical
+    /// place, wherever macOS has it.
     private func place(
         _ s: Desk.Stacked, offset: CGSize?, row: [Display], lefts: [CGFloat], map: RowMap, scale: CGFloat
     ) -> Placement {

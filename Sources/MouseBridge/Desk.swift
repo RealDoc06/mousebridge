@@ -141,13 +141,14 @@ final class Desk {
             screens[i].display.leftMM = x
             x += screens[i].display.widthMM
         }
-        let placed = placed
+        let placed = placed, rowDisplays = screens.filter { rowIDs.contains($0.id) }.map(\.display)
         for i in screens.indices {
-            guard let h = screens.first(where: { $0.id == stackedHosts[screens[i].id] }) else { continue }
-            let x = screens[i].display.frame.minX - h.display.frame.minX
-            let offset = placed[screens[i].key].flatMap { $0.host == h.key && abs($0.x - x) < 1 ? CGFloat($0.offset) : nil }
-            screens[i].display.leftMM = h.display.leftMM
-                + (offset ?? Arrangement.defaultLeft(of: screens[i].display.frame, widthMM: screens[i].display.widthMM, on: h.display))
+            guard let host = screens.first(where: { $0.id == stackedHosts[screens[i].id] }) else { continue }
+            let d = screens[i].display, h = host.display, x = d.frame.minX - h.frame.minX
+            let saved = placed[screens[i].key].flatMap { $0.host == host.key && abs($0.x - x) < 1 ? h.leftMM + CGFloat($0.offset) : nil }
+            // A saved spot no longer in front of the row (say, after a reorder moved its host) would cut it off.
+            screens[i].display.leftMM = saved.flatMap { Arrangement.faces($0, widthMM: d.widthMM, row: rowDisplays) ? $0 : nil }
+                ?? h.leftMM + Arrangement.defaultLeft(of: d.frame, widthMM: d.widthMM, on: h)
         }
         self.screens = screens
         canReorder = rowIDs.count + stackedHosts.count == active.count
