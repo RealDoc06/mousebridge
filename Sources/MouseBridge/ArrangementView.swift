@@ -27,6 +27,8 @@ struct ArrangementView: View {
 
     /// Snap reach in points on screen, so it feels the same at any scale.
     private static let snapPoints: CGFloat = 6
+    /// Tallest the canvas gets, in points.
+    private static let maxHeight: CGFloat = 240
 
     var body: some View {
         // Until one is picked, the arrows move the first display that isn't the main one.
@@ -63,15 +65,18 @@ struct ArrangementView: View {
         }
         let padLeft = overhangs.map(\.left).reduce(0, max), padRight = overhangs.map(\.right).reduce(0, max)
         let span = -padLeft...(rowWidth + padRight)
-        let scale = width / (span.upperBound - span.lowerBound)
-        let placed = arranged(drag, scale: scale)
-        let slots = lefts(placed.order)
-        let rowLefts = desk.row.indices.map { drag?.id == desk.row[$0].id ? placed.left : slots[$0] }
         // Framed on the saved arrangement with room for any drag, so it holds still while one moves. Stacked
         // displays get room above and below, since one can be dragged to either side.
         let bounds = Arrangement.bounds(row)
         let tallest = stacked.map(\.screen.display.heightMM).max() ?? 0
         let originMM = bounds.lowerBound - tallest, heightMM = bounds.upperBound - bounds.lowerBound + 2 * tallest
+        // As wide as the panel, but no taller than `maxHeight` (a laptop with an iPad below would push the menu off
+        // screen), centered when that makes it narrower.
+        let scale = min(width / (span.upperBound - span.lowerBound), Self.maxHeight / heightMM)
+        let inset = (width - (span.upperBound - span.lowerBound) * scale) / 2 + padLeft * scale
+        let placed = arranged(drag, scale: scale)
+        let slots = lefts(placed.order)
+        let rowLefts = desk.row.indices.map { drag?.id == desk.row[$0].id ? placed.left : slots[$0] }
 
         return ZStack(alignment: .topLeading) {
             ForEach(Array(desk.row.enumerated()), id: \.element.id) { i, screen in
@@ -79,7 +84,7 @@ struct ArrangementView: View {
                 let dragged = drag?.id == screen.id
                 tile(d, name: names[screen.id] ?? "Display", dragged: dragged, selected: screen.id == target)
                     .frame(width: d.widthMM * scale, height: d.heightMM * scale)
-                    .offset(x: (padLeft + rowLefts[i]) * scale, y: (d.topMM - originMM) * scale)
+                    .offset(x: inset + rowLefts[i] * scale, y: (d.topMM - originMM) * scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
                     .onTapGesture { selected = screen.id }
@@ -98,7 +103,7 @@ struct ArrangementView: View {
                 let p = place(s, offset: dragged ? drag?.offset : nil, row: placed.displays, lefts: rowLefts, span: span, scale: scale)
                 tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false)
                     .frame(width: d.widthMM * scale, height: d.heightMM * scale)
-                    .offset(x: (padLeft + p.left) * scale, y: (p.top - originMM) * scale)
+                    .offset(x: inset + p.left * scale, y: (p.top - originMM) * scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
                     .gesture(

@@ -37,6 +37,14 @@ final class Desk {
             stackedHosts[s.id].flatMap { h in row.firstIndex { $0.id == h } }.map { Stacked(screen: s, host: $0) }
         }
     }
+    /// The displays the cursor bridge remaps crossings between: all but stacked ones with no stacked display beside
+    /// them. A 2×2 grid's other pair keeps its bridge; an iPad under a monitor is left to macOS.
+    private var bridged: [Display] {
+        let frames = screens.filter { stackedHosts[$0.id] != nil }.map(\.display.frame)
+        return screens.filter { s in
+            stackedHosts[s.id] == nil || frames.contains { Layout.borders(s.display.frame, $0) || Layout.borders($0, s.display.frame) }
+        }.map(\.display)
+    }
     /// True when the row and the displays stacked on it are every active display, so reordering can't overlap one
     /// left out.
     private(set) var canReorder = false
@@ -44,7 +52,7 @@ final class Desk {
     var guides = UserDefaults.standard.bool(forKey: "guides") {
         didSet { UserDefaults.standard.set(guides, forKey: "guides") }
     }
-    /// Called with the row's displays whenever their geometry or arrangement changes.
+    /// Called with the cursor bridge's displays (`bridged`) whenever their geometry or arrangement changes.
     @ObservationIgnored var onChange: (([Display]) -> Void)?
 
     private static let topsKey = "physicalTops"
@@ -102,7 +110,7 @@ final class Desk {
             stackedHosts[s.id] = Arrangement.host(of: s.display.frame, among: row.map(\.display.frame)).map { row[$0].id }
         }
         canReorder = rowIDs.count + stackedHosts.count == active.count
-        onChange?(row.map(\.display))
+        onChange?(bridged)
     }
 
     /// `start` and the displays chained beside it, each step taking the neighbor that shares the most rows.
@@ -131,7 +139,7 @@ final class Desk {
         var saved = UserDefaults.standard.dictionary(forKey: Self.topsKey) as? [String: Double] ?? [:]
         for s in row { saved[s.key] = s.display.topMM }
         UserDefaults.standard.set(saved, forKey: Self.topsKey)
-        onChange?(row.map(\.display))
+        onChange?(bridged)
     }
 
     /// Puts the displays side by side in macOS's arrangement in `order`, left to right, keeping each one's

@@ -10,7 +10,7 @@ final class EventTap {
     var bridgeEnabled = UserDefaults.standard.object(forKey: "bridgeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(bridgeEnabled, forKey: "bridgeEnabled"); rebuildLayout() }
     }
-    /// The side-by-side displays, as arranged on the desk (`Desk.row`).
+    /// The side-by-side displays, as arranged on the desk (`Desk.bridged`).
     @ObservationIgnored var displays: [Display] = [] {
         didSet { rebuildLayout() }
     }

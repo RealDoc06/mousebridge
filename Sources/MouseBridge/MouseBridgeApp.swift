@@ -32,7 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated {
                 desk.reload()
                 Shade.refit()
-                Task { await monitors.reload(settle: .seconds(1)) }
+                // Again once settled too: a reconnected monitor's framebuffer details can lag the first notification.
+                Task {
+                    await monitors.reload(settle: .seconds(1))
+                    desk.reload()
+                }
             }
         }
         if !AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) || !tap.start() {
