@@ -5,11 +5,11 @@ import SwiftUI
 /// sits, which the cursor bridge maps crossings by, and the arrows nudge the selected one a pixel at a time.
 /// Dragging one past a neighbor reorders macOS's arrangement. With guides on, drags snap to aligned edges and
 /// `GuideOverlay` draws the guides on the real displays, each display's in its own color. Displays stacked above or
-/// below the row (`Desk.stacked`) sit against the ones they touch, each column over the display it crosses to in
-/// macOS (`RowMap`), and dragging
-/// one moves it along that edge, onto another display, or to the other side, in macOS's arrangement only. Dragged
-/// past either end of the row, it docks beside the end display and joins the row; an end display dragged past the
-/// canvas's top or bottom leaves the row and stacks on its neighbor.
+/// below the row (`Desk.stacked`) sit at real scale too, against the row displays in front of them; dragging one
+/// sets where it physically sits along the desk, which the cursor bridge crosses to it by, and moves it in macOS to
+/// match as far as points allow, onto another display or to the other side. Dragged past either end of the row, it
+/// docks beside the end display and joins the row; an end display dragged past the canvas's top or bottom leaves the
+/// row and stacks on its neighbor.
 struct ArrangementView: View {
     let desk: Desk
     /// Label for each display, by display ID.
@@ -94,21 +94,18 @@ struct ArrangementView: View {
         /// mm at the canvas's top edge, and its height.
         let originMM: CGFloat
         let heightMM: CGFloat
-        /// Row mm the canvas shows, including room past the row's ends for stacked displays hanging over.
-        let span: ClosedRange<CGFloat>
     }
 
-    /// A stacked display's extent on the canvas: its left edge and width along the row (mm, through `RowMap`, so each
-    /// column sits over the row display that holds it), and its height at its host's scale.
+    /// A stacked display's extent on the canvas: its left edge along the row and its physical size, in mm.
     private struct Extent {
         let left: CGFloat
         let width: CGFloat
         let height: CGFloat
 
-        init(_ frame: CGRect, on host: Display, _ map: RowMap) {
-            left = map.mm(frame.minX)
-            width = map.mm(frame.maxX) - left
-            height = frame.height * host.mmPerPoint
+        init(_ d: Display, at left: CGFloat) {
+            self.left = left
+            width = d.widthMM
+            height = d.heightMM
         }
     }
 
@@ -126,17 +123,20 @@ struct ArrangementView: View {
         let scale = min(width / widthMM, Self.maxHeight / heightMM)
         return Frame(
             scale: scale, inset: (width - widthMM * scale) / 2 + padLeft * scale,
-            originMM: bounds.lowerBound - tallest, heightMM: heightMM, span: -padLeft...(rowWidth + padRight)
+            originMM: bounds.lowerBound - tallest, heightMM: heightMM
         )
     }
 
     private enum End { case left, right }
 
-    /// The row end a dragged stacked display docks beside: the one the pointer has left the canvas's content past.
+    /// The row end a dragged stacked display docks beside: the one its center is dragged out past. Up to that, it
+    /// can hang past the end, as one might on the desk.
     private func dock(_ drag: Drag?, in f: Frame) -> End? {
-        guard let drag, desk.stacked.contains(where: { $0.screen.id == drag.id }) else { return nil }
-        if drag.location.x < f.inset + f.span.lowerBound * f.scale { return .left }
-        if drag.location.x > f.inset + f.span.upperBound * f.scale { return .right }
+        guard let drag, let d = desk.stacked.first(where: { $0.screen.id == drag.id })?.screen.display else { return nil }
+        let start = d.leftMM + d.widthMM / 2, center = start + drag.offset.width / f.scale
+        let rowWidth = desk.row.map(\.display.widthMM).reduce(0, +)
+        if center < min(0, start) { return .left }
+        if center > max(rowWidth, start) { return .right }
         return nil
     }
 
@@ -145,6 +145,8 @@ struct ArrangementView: View {
         let index: Int
         let host: Int
         let frame: CGRect
+        /// Its left edge's offset from its neighbor's along the desk: lined up with the row's outer edge.
+        let offset: CGFloat
     }
 
     /// Where a dragged row end display stacks when the pointer leaves the canvas above or below: on its neighbor's
@@ -160,7 +162,8 @@ struct ArrangementView: View {
             stacking: d.frame.size, leftMM: i == 0 ? 0 : row[n].widthMM - d.frame.width * row[n].mmPerPoint,
             below: drag.location.y > 0, on: row[n], clearOf: row.indices.filter { $0 != i && $0 != n }.map { row[$0].frame }
         )
-        return origin.map { Undock(index: i, host: n, frame: CGRect(origin: $0, size: d.frame.size)) }
+        let offset = i == 0 ? 0 : row[n].widthMM - d.widthMM
+        return origin.map { Undock(index: i, host: n, frame: CGRect(origin: $0, size: d.frame.size), offset: offset) }
     }
 
     /// `d` beside the row's `end` display at its physical size, bottom-aligned with it, as it joins the row.
@@ -174,8 +177,7 @@ struct ArrangementView: View {
     private func canvas(target: CGDirectDisplayID?) -> some View {
         let row = desk.row.map(\.display), stacked = desk.stacked
         let saved = lefts(Array(row.indices))
-        let savedMap = RowMap(row.indices.map { (row[$0], saved[$0]) })
-        let base = frame(row: row, extents: stacked.map { Extent($0.screen.display.frame, on: row[$0.host], savedMap) })
+        let base = frame(row: row, extents: stacked.map { Extent($0.screen.display, at: $0.screen.display.leftMM) })
         // A stacked display dragged past the row's end previews docked beside it, with the canvas framed to fit.
         let docking = dock(drag, in: base).flatMap { end in
             stacked.first { $0.screen.id == drag?.id }.flatMap { s in docked(s.screen.display, at: end).map { (s, end, $0) } }
@@ -184,10 +186,9 @@ struct ArrangementView: View {
         let undocking = undock(drag, in: base)
         let shift = docking.map { $1 == .left ? $2.widthMM : 0 } ?? undocking.map { $0.index == 0 ? -row[0].widthMM : 0 } ?? 0
         let kept = row.indices.filter { $0 != undocking?.index }
-        let shiftedMap = RowMap(kept.map { (row[$0], saved[$0] + shift) })
-        let others = stacked.filter { $0.screen.id != docking?.0.screen.id }.map { Extent($0.screen.display.frame, on: row[$0.host], shiftedMap) }
+        let others = stacked.filter { $0.screen.id != docking?.0.screen.id }.map { Extent($0.screen.display, at: $0.screen.display.leftMM + shift) }
         let f = docking.map { _, end, d in frame(row: end == .left ? [d] + row : row + [d], extents: others) }
-            ?? undocking.map { u in frame(row: kept.map { row[$0] }, extents: others + [Extent(u.frame, on: row[u.host], shiftedMap)]) }
+            ?? undocking.map { u in frame(row: kept.map { row[$0] }, extents: others + [Extent(row[u.index], at: saved[u.host] + shift + u.offset)]) }
             ?? base
         let placed = arranged(undocking == nil ? drag : nil, scale: f.scale)
         let slots = lefts(placed.order)
@@ -197,15 +198,21 @@ struct ArrangementView: View {
         // Where each stacked display is drawn, and the macOS frame a drag would give it.
         let placements = Dictionary(uniqueKeysWithValues: stacked.map { s in
             let offset = drag?.id == s.screen.id ? drag?.offset : nil
-            return (s.screen.id, place(s, offset: offset, row: placed.displays, map: map, span: f.span, scale: f.scale))
+            return (s.screen.id, place(s, offset: offset, row: placed.displays, lefts: rowLefts, map: map, scale: f.scale))
         })
         let guidesOn = desk.guides && (row.count > 1 || !stacked.isEmpty)
         let guideColor = { (i: Int) in guidesOn ? Color(nsColor: GuideOverlay.color(i)) : nil }
-        let guides = Guides(row: placed.displays, stacked: stacked.map { s in
-            let d = s.screen.display
-            let frame = docking?.0.screen.id == s.screen.id ? d.frame : placements[s.screen.id]?.frame ?? d.frame
-            let touching = row.indices.filter { Layout.stacks(row[$0].frame, frame) || Layout.stacks(frame, row[$0].frame) }
-            return GuideOverlay.Stacked(id: s.screen.id, frame: d.frame, placed: frame, touching: touching)
+        // Along the row as previewed, so a stacked display's guides follow a row display being dragged too.
+        let shown = placed.displays.indices.map { i in
+            var d = placed.displays[i]
+            d.leftMM = rowLefts[i]
+            return d
+        }
+        let guides = Guides(row: shown, stacked: stacked.map { s in
+            var d = s.screen.display
+            d.leftMM = docking?.0.screen.id == s.screen.id ? d.leftMM + shift : placements[s.screen.id]?.left ?? d.leftMM + shift
+            let touching = shown.indices.filter { shown[$0].leftMM < d.leftMM + d.widthMM && d.leftMM < shown[$0].leftMM + shown[$0].widthMM }
+            return GuideOverlay.Stacked(id: s.screen.id, frame: s.screen.display.frame, placed: d, touching: touching)
         })
 
         return ZStack(alignment: .topLeading) {
@@ -215,9 +222,9 @@ struct ArrangementView: View {
                 // Lifted out, it's drawn stacked on its neighbor, where it will sit.
                 let lifted = undocking.flatMap { u -> (left: CGFloat, top: CGFloat, size: CGSize)? in
                     guard u.index == i else { return nil }
-                    let h = row[u.host], e = Extent(u.frame, on: h, map)
-                    let top = u.frame.midY > h.frame.midY ? h.topMM + h.heightMM : h.topMM - e.height
-                    return (e.left, top, CGSize(width: e.width, height: e.height))
+                    let h = row[u.host]
+                    let top = u.frame.midY > h.frame.midY ? h.topMM + h.heightMM : h.topMM - d.heightMM
+                    return (rowLefts[u.host] + u.offset, top, CGSize(width: d.widthMM, height: d.heightMM))
                 }
                 let left = lifted?.left ?? rowLefts[i], top = lifted?.top ?? d.topMM
                 let size = lifted?.size ?? CGSize(width: d.widthMM, height: d.heightMM)
@@ -232,7 +239,7 @@ struct ArrangementView: View {
                             .updating($drag) { value, drag, _ in drag = Drag(id: screen.id, value) }
                             .onEnded {
                                 let drag = Drag(id: screen.id, $0)
-                                if let u = undock(drag, in: base) { return desk.move(screen.id, to: u.frame.origin) }
+                                if let u = undock(drag, in: base) { return lift(screen.id, u) }
                                 selected = screen.id
                                 commit(drag, scale: f.scale)
                             }
@@ -247,7 +254,7 @@ struct ArrangementView: View {
                         left: end == .left ? 0 : row.map(\.widthMM).reduce(0, +), top: display.topMM,
                         size: CGSize(width: display.widthMM, height: display.heightMM), frame: d.frame
                     )
-                } ?? placements[s.screen.id] ?? place(s, offset: nil, row: placed.displays, map: map, span: f.span, scale: f.scale)
+                } ?? placements[s.screen.id] ?? place(s, offset: nil, row: placed.displays, lefts: rowLefts, map: map, scale: f.scale)
                 tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false, guide: guideColor(row.count + k))
                     .frame(width: p.size.width * f.scale, height: p.size.height * f.scale)
                     .offset(x: f.inset + p.left * f.scale, y: (p.top - f.originMM) * f.scale)
@@ -259,8 +266,11 @@ struct ArrangementView: View {
                             .onEnded { value in
                                 let drag = Drag(id: s.screen.id, value)
                                 if let end = dock(drag, in: base) { return dockBeside(s, at: end) }
-                                let p = place(s, offset: drag.offset, row: placed.displays, map: map, span: f.span, scale: f.scale)
+                                let p = place(s, offset: drag.offset, row: placed.displays, lefts: rowLefts, map: map, scale: f.scale)
+                                guard p.frame.origin != d.frame.origin || abs(p.left - d.leftMM) > 0.01 else { return }
                                 if p.frame.origin != d.frame.origin { desk.move(s.screen.id, to: p.frame.origin) }
+                                // Saved even when only macOS moved, so where it was dragged to sticks.
+                                desk.setLeft(p.left, of: s.screen.id)
                             }
                     )
             }
@@ -273,6 +283,19 @@ struct ArrangementView: View {
             if let shown { GuideOverlay.show(desk.row.map(\.id), shown.row, stacked: shown.stacked) } else { GuideOverlay.hide() }
         }
         .onDisappear { GuideOverlay.hide() }
+    }
+
+    /// Lifts a row end out of the row onto its neighbor, as `u` previews: in macOS, then along the desk against it.
+    /// With two displays, the lifted one can end up as the row and its neighbor as the stacked one; the same
+    /// offset is saved from that side.
+    private func lift(_ id: CGDirectDisplayID, _ u: Undock) {
+        let hostID = desk.row[u.host].id
+        desk.move(id, to: u.frame.origin)
+        if let h = desk.row.first(where: { $0.id == hostID })?.display {
+            desk.setLeft(h.leftMM + u.offset, of: id)
+        } else if let lifted = desk.row.first(where: { $0.id == id })?.display {
+            desk.setLeft(lifted.leftMM - u.offset, of: hostID)
+        }
     }
 
     /// Moves a stacked display beside the row's `end` display in macOS, bottom-aligned with it, and saves its
@@ -332,7 +355,8 @@ struct ArrangementView: View {
         return (displays, Arrangement.order(widths: widths, dragging: i, toLeft: left), left)
     }
 
-    /// A stacked display as drawn, in mm with the row starting at 0, and its frame in macOS (global points).
+    /// A stacked display as drawn, in mm with the row starting at 0 (`left` is also its place along the desk while
+    /// the row isn't shifted for a preview), and its frame in macOS (global points).
     private struct Placement {
         let left: CGFloat
         let top: CGFloat
@@ -340,41 +364,43 @@ struct ArrangementView: View {
         let frame: CGRect
     }
 
-    /// Where a stacked display sits against its host or, dragged by `offset`, where it lands: along the row (kept
-    /// over it, or where it already hangs, and within the canvas `span`), against the display it overlaps most, on
-    /// the side its center is on, clear of that display's neighbors. It's drawn from the macOS frame that results,
-    /// as the menu shows it once applied, each column over the row display it crosses to (`map`).
+    /// Where a stacked display sits or, dragged by `offset`, where it lands: physically, at its place along the row
+    /// (its center kept over it, or where it already hangs; the canvas re-frames to fit) against the row displays in
+    /// front of it, on the side its center is on. In macOS it goes against the display it overlaps most, centered on
+    /// the same spot as far as points allow (`map`) and clear of that display's neighbors; with no room there, it
+    /// keeps its macOS spot on the same side and stays put across. The cursor bridge crosses to it by its physical
+    /// place, wherever macOS has it.
     private func place(
-        _ s: Desk.Stacked, offset: CGSize?, row: [Display], map: RowMap, span: ClosedRange<CGFloat>, scale: CGFloat
+        _ s: Desk.Stacked, offset: CGSize?, row: [Display], lefts: [CGFloat], map: RowMap, scale: CGFloat
     ) -> Placement {
         let d = s.screen.display
-        let drawn = { (frame: CGRect, h: Int) -> Placement in
-            let e = Extent(frame, on: row[h], map)
-            let top = frame.midY > row[h].frame.midY ? row[h].topMM + row[h].heightMM : row[h].topMM - e.height
-            return Placement(left: e.left, top: top, size: CGSize(width: e.width, height: e.height), frame: frame)
+        let drawn = { (left: CGFloat, h: Int, below: Bool, frame: CGRect) -> Placement in
+            let front = row.indices.filter { lefts[$0] < left + d.widthMM && left < lefts[$0] + row[$0].widthMM }
+            let over = front.isEmpty ? [h] : front
+            let top = below
+                ? over.map { row[$0].topMM + row[$0].heightMM }.max() ?? 0
+                : (over.map { row[$0].topMM }.min() ?? 0) - d.heightMM
+            return Placement(left: left, top: top, size: CGSize(width: d.widthMM, height: d.heightMM), frame: frame)
         }
-        let unmoved = drawn(d.frame, s.host)
+        let left = lefts[s.host] + d.leftMM - row[s.host].leftMM
+        let unmoved = drawn(left, s.host, d.frame.midY > row[s.host].frame.midY, d.frame)
         guard let offset else { return unmoved }
-        let left = unmoved.left, width = unmoved.size.width, free = row.map(\.widthMM).reduce(0, +) - width
-        let moved = min(
-            max(left + offset.width / scale, span.lowerBound, min(0, free, left)),
-            span.upperBound - width, max(0, free, left)
-        )
-        let x = map.x(moved)
+        // Its center stays over the row (or where it already is); past that it docks instead (`dock`).
+        let end = row.map(\.widthMM).reduce(0, +) - d.widthMM / 2
+        let moved = min(max(left + offset.width / scale, min(-d.widthMM / 2, left)), max(end, left))
         // A drag that's barely sideways keeps its host.
         let h = abs(offset.width) < Self.snapPoints ? s.host
-            : Arrangement.host(left: x, width: d.frame.width, in: row.map { ($0.frame.minX, $0.frame.width) }) ?? s.host
-        let below = unmoved.top + unmoved.size.height / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
-        // Where it can't fit, it stays where it was.
+            : Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
+        let below = unmoved.top + d.heightMM / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
+        // Same spot, same side (a click, or a short drag that settles back): nothing moves.
+        if abs(moved - left) < 0.5, below == (d.frame.midY > row[s.host].frame.midY) { return unmoved }
+        let x = map.x(moved + d.widthMM / 2) - d.frame.width / 2
+        // Where it can't fit in macOS, it keeps its macOS spot on the same side, and stays put if moved across.
         guard let origin = Arrangement.origin(
             stacking: d.frame.size, leftMM: (x - row[h].frame.minX) * row[h].mmPerPoint, below: below, on: row[h],
             clearOf: row.indices.filter { $0 != h }.map { row[$0].frame }
-        ) else { return unmoved }
-        let frame = CGRect(origin: origin, size: d.frame.size)
-        // The frame can sit mostly on a neighbor of `h`, which it then follows.
-        let placed = drawn(frame, Arrangement.host(of: frame, among: row.map(\.frame)) ?? h)
-        // Sliding clear of a neighbor can push it off the canvas, which counts as not fitting too.
-        return span.contains(placed.left + 0.5) && span.contains(placed.left + placed.size.width - 0.5) ? placed : unmoved
+        ) else { return below == (d.frame.midY > row[s.host].frame.midY) ? drawn(moved, s.host, below, d.frame) : unmoved }
+        return drawn(moved, h, below, CGRect(origin: origin, size: d.frame.size))
     }
 
     /// Left edge (mm) of each display when laid out in `order`, indexed like `desk.row`.

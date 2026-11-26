@@ -3,15 +3,15 @@ import OSLog
 import BridgeCore
 @preconcurrency import CoreGraphics
 
-/// Owns the HID event taps. Remaps left/right display crossings through `Layout`
+/// Owns the HID event taps. Remaps display crossings through `Layout`
 /// and turns the keyboard brightness keys into `onBrightnessKey` calls.
 @MainActor @Observable
 final class EventTap {
     var bridgeEnabled = UserDefaults.standard.object(forKey: "bridgeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(bridgeEnabled, forKey: "bridgeEnabled"); rebuildLayout() }
     }
-    /// The side-by-side displays, as arranged on the desk (`Desk.bridged`).
-    @ObservationIgnored var displays: [Display] = [] {
+    /// The displays as arranged on the desk (`Desk.layout`), which crossings are remapped by while the bridge is on.
+    @ObservationIgnored var arrangement = Layout(displays: []) {
         didSet { rebuildLayout() }
     }
     /// False until Accessibility permission lets the tap start.
@@ -73,7 +73,7 @@ final class EventTap {
 
     private func rebuildLayout() {
         guard bridgeEnabled else { layout = nil; gate?.layout = nil; return }
-        layout = Layout(displays: displays)
+        layout = arrangement
         gate?.layout = layout
         last = CGEvent(source: nil)?.location ?? last
     }

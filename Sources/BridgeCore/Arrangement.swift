@@ -65,18 +65,36 @@ public enum Arrangement {
         return guides.filter { (-0.5...(d.frame.height + 0.5)).contains($0.row) }
     }
 
-    /// Columns (points from `frame`'s left) under or over the left edge, center and right edge of `other`, a display
-    /// stacked against it: where the cursor crosses between the two in macOS. Drawn on the real screen, a column that
-    /// runs straight into that display's actual bezel edge means the arrangement matches the desk. Columns past the
-    /// display's own edges are left out.
-    public static func columns(on frame: CGRect, of other: CGRect) -> [CGFloat] {
-        [other.minX, other.midX, other.maxX].map { $0 - frame.minX }.filter { (-0.5...(frame.width + 0.5)).contains($0) }
+    /// Columns (points from `d`'s left) under or over the left edge, center and right edge of `other`, a display
+    /// stacked against it, by where each sits along the desk (`leftMM`): where the cursor bridge crosses between them.
+    /// Drawn on the real screen, a column that runs straight into that display's actual bezel edge means its
+    /// position matches the desk. Columns past the display's own edges are left out.
+    public static func columns(on d: Display, of other: Display) -> [CGFloat] {
+        [0, other.widthMM / 2, other.widthMM].map { (other.leftMM + $0 - d.leftMM) / d.mmPerPoint }
+            .filter { (-0.5...(d.frame.width + 0.5)).contains($0) }
     }
 
     /// A guide line: its row (points from the display's top) and the index of the display whose edge it marks.
     public struct Guide: Equatable, Sendable {
         public let row: CGFloat
         public let source: Int
+    }
+
+    /// Where a stacked display sits along the desk before it's placed by hand, as an offset (mm) of its left edge from
+    /// `host`'s: centered where macOS centers it (`frame`), at the host's scale, as a drop places it in macOS, but
+    /// overlapping the host physically by as much as it does in macOS (up to its own width), so the cursor bridge
+    /// never shuts off a crossing with its host that macOS has.
+    public static func defaultLeft(of frame: CGRect, widthMM: CGFloat, on host: Display) -> CGFloat {
+        let shared = (min(frame.maxX, host.frame.maxX) - max(frame.minX, host.frame.minX)) * host.mmPerPoint
+        let overlap = min(max(shared, 0), widthMM)
+        let centered = (frame.midX - host.frame.minX) * host.mmPerPoint - widthMM / 2
+        return min(max(centered, overlap - widthMM), host.widthMM - overlap)
+    }
+
+    /// True when a display `widthMM` wide at `left` along the desk is in front of some display in `row`, so the cursor
+    /// can cross to it.
+    public static func faces(_ left: CGFloat, widthMM: CGFloat, row: [Display]) -> Bool {
+        row.contains { $0.leftMM < left + widthMM && left < $0.leftMM + $0.widthMM }
     }
 
     /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
@@ -116,10 +134,9 @@ public enum Arrangement {
     private static func levels(of height: CGFloat) -> [CGFloat] { [0, height / 2, height] }
 }
 
-/// Maps global x (points) along the row to canvas mm and back, through whichever row display holds it, at that
-/// display's scale. A display stacked across a seam is then drawn over exactly the columns of each display it
-/// touches: where the cursor crosses between them in macOS. Past the row's ends it carries on at the end display's
-/// scale.
+/// Maps global x (points) along the row to desk mm and back, through whichever row display holds it, at that
+/// display's scale; past the row's ends it carries on at the end display's. A dropped stacked display goes where
+/// macOS gets the x (`x(_:)`) for its spot along the desk; `mm(_:)` is its inverse.
 public struct RowMap: Sendable {
     private let spans: [(frame: CGRect, left: CGFloat, mmPerPoint: CGFloat)]
 

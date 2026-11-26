@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         tap.onBrightnessKey = { [monitors] up, fine in monitors.step(up: up, fine: fine) }
-        desk.onChange = { [tap] in tap.displays = $0 }
+        desk.onChange = { [tap] in tap.arrangement = $0 }
         desk.reload()
         Task { await monitors.reload() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [self] _ in
