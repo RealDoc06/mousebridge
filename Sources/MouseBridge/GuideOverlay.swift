@@ -10,16 +10,23 @@ enum GuideOverlay {
     private static var panels: [CGDirectDisplayID: NSPanel] = [:]
 
     /// Shows the lines for `displays` (as arranged, with any drag in progress), indexed like `ids`.
+    /// Runs on every drag step, so it only redraws lines and touches panels that changed.
     static func show(_ ids: [CGDirectDisplayID], _ displays: [Display]) {
+        for (id, panel) in panels where !ids.contains(id) {
+            panel.orderOut(nil)
+            panels[id] = nil
+        }
+        // Panels are placed from Quartz's frames, which update before AppKit's screen list after a reorder.
+        let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
         for (i, id) in ids.enumerated() {
-            guard let screen = NSScreen.screens.first(where: { $0.displayID == id }) else { continue }
             let panel = panels[id] ?? makePanel()
             panels[id] = panel
-            panel.setFrame(screen.frame, display: false)
-            panel.contentView = NSHostingView(rootView: GuideLines(rows: Arrangement.guides(on: i, in: displays)))
-            panel.orderFrontRegardless()
+            let f = displays[i].frame
+            let frame = CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height)
+            if panel.frame != frame { panel.setFrame(frame, display: false) }
+            (panel.contentView as? GuideLinesView)?.rows = Arrangement.guides(on: i, in: displays)
+            if !panel.isVisible { panel.orderFrontRegardless() }
         }
-        for (id, panel) in panels where !ids.contains(id) { panel.orderOut(nil) }
     }
 
     static func hide() { panels.values.forEach { $0.orderOut(nil) } }
@@ -32,28 +39,32 @@ enum GuideOverlay {
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
+        panel.contentView = GuideLinesView()
         return panel
     }
 }
 
-/// Full-width lines at `rows`, in points from the top of the screen, kept inside its edges.
-private struct GuideLines: View {
-    let rows: [CGFloat]
+/// Full-width lines at `rows`, in points from the top, snapped to device pixels and kept inside the edges.
+private final class GuideLinesView: NSView {
+    var rows: [CGFloat] = [] {
+        didSet { if rows != oldValue { needsDisplay = true } }
+    }
     private static let thickness: CGFloat = 2
 
-    var body: some View {
-        GeometryReader { geo in
-            ForEach(rows, id: \.self) { row in
-                Rectangle().fill(.yellow)
-                    .frame(width: geo.size.width, height: Self.thickness)
-                    .offset(y: min(max(row - Self.thickness / 2, 0), geo.size.height - Self.thickness))
-            }
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.systemYellow.setFill()
+        for row in rows {
+            let y = min(max(row - Self.thickness / 2, 0), bounds.height - Self.thickness)
+            backingAlignedRect(CGRect(x: 0, y: y, width: bounds.width, height: Self.thickness), options: .alignAllEdgesNearest).fill()
         }
     }
 }
 
-/// Calls `action` with whether the window holding this view is on screen, as it opens and closes.
-/// A MenuBarExtra popup keeps its views alive while closed, so `onAppear` and `onDisappear` miss that.
+/// Calls `action` with whether the window holding this view is on screen: once when attached, then as it
+/// opens and closes. A MenuBarExtra popup keeps its views alive while closed, so `onAppear` and `onDisappear`
+/// miss that.
 struct OnWindowVisibility: NSViewRepresentable {
     let action: (Bool) -> Void
 
@@ -64,17 +75,20 @@ struct OnWindowVisibility: NSViewRepresentable {
         var action: ((Bool) -> Void)?
         private var observer: NSObjectProtocol?
 
+        /// Also runs with no window when the view leaves it, before it goes away, which drops the observer.
         override func viewDidMoveToWindow() {
             observer.map(NotificationCenter.default.removeObserver)
-            guard let window else { return }
+            observer = nil
+            guard let window else { DispatchQueue.main.async { [action] in action?(false) }; return }
             observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let window = self.window else { return }
-                    self.action?(window.occlusionState.contains(.visible))
-                }
+                MainActor.assumeIsolated { self?.report(self?.window?.occlusionState.contains(.visible) ?? false) }
             }
+            // Reported a turn later, since SwiftUI state can't change while the view is being attached.
+            DispatchQueue.main.async { [weak self] in self?.report(self?.window?.occlusionState.contains(.visible) ?? false) }
         }
+
+        private func report(_ visible: Bool) { action?(visible) }
     }
 }

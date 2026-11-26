@@ -16,7 +16,7 @@ struct ArrangementView: View {
     /// The display the arrows move: the last one tapped or dragged.
     @State private var selected: CGDirectDisplayID?
     /// Whether the popup is open. MenuBarExtra keeps this view alive while it's closed.
-    @State private var open = true
+    @State private var open = false
 
     private struct Drag: Equatable {
         let id: CGDirectDisplayID
@@ -34,17 +34,19 @@ struct ArrangementView: View {
             HStack {
                 Text("Arrangement").font(.headline)
                 Spacer()
-                Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
-                    .help("Move the selected display up a pixel")
-                Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
-                    .help("Move the selected display down a pixel")
+                Group {
+                    Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
+                        .help("Move the selected display up a pixel")
+                    Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
+                        .help("Move the selected display down a pixel")
+                }
+                .buttonRepeatBehavior(.enabled)
                 Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
                     .foregroundStyle(desk.guides ? .yellow : .secondary)
                     .help(desk.guides ? "Hide guides" : "Show guides on the displays")
             }
             .buttonStyle(.borderless)
             .labelStyle(.iconOnly)
-            .buttonRepeatBehavior(.enabled)
             canvas(target: target)
         }
     }
@@ -139,12 +141,18 @@ struct ArrangementView: View {
         return lefts
     }
 
-    /// Moves a display by `pixels` of its own screen, without snapping, so it can sit just off a guide.
+    /// Moves a display by `pixels` of its panel, without snapping, so it can sit just off a guide.
     private func nudge(_ id: CGDirectDisplayID, pixels: CGFloat) {
         guard let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
         let d = desk.row[i].display
-        let backing = NSScreen.screens.first { $0.displayID == id }?.backingScaleFactor ?? 1
-        desk.setTop(Arrangement.place(i, at: d.topMM + pixels * d.mmPerPoint / backing, in: desk.row.map(\.display)), of: id)
+        let top = Arrangement.place(i, at: d.topMM + pixels * d.widthMM / CGFloat(nativePixelWidth(id)), in: desk.row.map(\.display))
+        if top != d.topMM { desk.setTop(top, of: id) }
+    }
+
+    /// The panel's own pixel width, from its native mode. A scaled mode's backing pixels can be smaller or larger.
+    private func nativePixelWidth(_ id: CGDirectDisplayID) -> Int {
+        let modes = CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary) as? [CGDisplayMode]
+        return modes?.first { $0.ioFlags & UInt32(kDisplayModeNativeFlag) != 0 }?.pixelWidth ?? CGDisplayPixelsWide(id)
     }
 
     private func commit(_ drag: Drag, scale: CGFloat) {
