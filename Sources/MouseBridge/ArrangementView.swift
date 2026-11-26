@@ -82,11 +82,11 @@ struct ArrangementView: View {
         var displays = desk.row.map(\.display)
         let identity = Array(displays.indices)
         guard let drag, let i = desk.row.firstIndex(where: { $0.id == drag.id }) else { return (displays, identity, 0) }
-        // A reorder drag that wobbles less than the snap reach keeps the saved top, and so does one that ends level,
-        // rather than snapping the top to a guide.
+        // A reorder drag that wobbles less than the snap reach keeps the saved top, and so does one that ends within
+        // a point of level, rather than snapping the top to a guide.
         let dx = abs(drag.offset.width), dy = abs(drag.offset.height)
         let sideways = desk.canReorder && dy < Self.snapPoints && dx > dy
-        if dy > 0, !sideways {
+        if dy >= 1, !sideways {
             displays[i].topMM = Arrangement.place(
                 i, at: displays[i].topMM + drag.offset.height / scale, in: displays,
                 snapMM: desk.guides ? Self.snapPoints / scale : nil
@@ -114,7 +114,7 @@ struct ArrangementView: View {
         guard let i = desk.row.firstIndex(where: { $0.id == drag.id }) else { return }
         let placed = arranged(drag, scale: scale)
         withAnimation(.snappy(duration: 0.2)) {
-            desk.setTop(placed.displays[i].topMM, of: drag.id)
+            if placed.displays[i].topMM != desk.row[i].display.topMM { desk.setTop(placed.displays[i].topMM, of: drag.id) }
             if placed.order != Array(placed.displays.indices) { desk.reorder(placed.order.map { desk.row[$0].id }) }
         }
     }
