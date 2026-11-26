@@ -187,7 +187,9 @@ struct ArrangementView: View {
             max(left + offset.width / scale, span.lowerBound, min(0, free, left)),
             span.upperBound - d.widthMM, max(0, free, left)
         )
-        let h = Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
+        // A drag that's barely sideways keeps its host; mm and points can disagree on which it overlaps most.
+        let h = abs(offset.width) < Self.snapPoints ? s.host
+            : Arrangement.host(left: moved, width: d.widthMM, in: row.indices.map { (lefts[$0], row[$0].widthMM) }) ?? s.host
         let below = top(s.host, base.below) + d.heightMM / 2 + offset.height / scale > row[h].topMM + row[h].heightMM / 2
         // Where it can't fit, it stays where it was.
         guard let origin = Arrangement.origin(

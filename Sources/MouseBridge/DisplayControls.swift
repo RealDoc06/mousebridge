@@ -48,8 +48,12 @@ enum Gamma {
 enum Shade {
     private static var panels: [CGDirectDisplayID: NSPanel] = [:]
 
+    /// A mirror has the bounds of the display it mirrors, so it never gets a panel, even mid-switch to mirroring.
     static func dim(_ id: CGDirectDisplayID, to level: Double) {
-        guard level < 1 else { panels.removeValue(forKey: id)?.orderOut(nil); return }
+        guard level < 1, CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay else {
+            panels.removeValue(forKey: id)?.orderOut(nil)
+            return
+        }
         let panel = panels[id] ?? makePanel()
         panels[id] = panel
         // Placed from Quartz's frame, flipped into AppKit's bottom-left coordinates.
@@ -59,12 +63,16 @@ enum Shade {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    /// Puts each panel back over its display after the displays move, and drops those whose display is gone. Runs
-    /// right on a display change, ahead of the settled reload that redims.
+    /// Puts each panel back over its display after the displays move, and drops those whose display is gone or now
+    /// mirrors another. Runs right on a display change, ahead of the settled reload that redims.
     static func refit() {
         let active = activeDisplays(), mainHeight = CGDisplayBounds(CGMainDisplayID()).height
         for (id, panel) in panels {
-            guard active.contains(id) else { panel.orderOut(nil); panels[id] = nil; continue }
+            guard active.contains(id), CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay else {
+                panel.orderOut(nil)
+                panels[id] = nil
+                continue
+            }
             let f = CGDisplayBounds(id)
             panel.setFrame(CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height), display: false)
         }
