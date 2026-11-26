@@ -57,37 +57,41 @@ public enum Arrangement {
     /// Rows (points from its top) of `displays[index]` that sit at the same physical height as the top, center or
     /// bottom of another display. Drawn on the real screen, a row that lines up with that display's actual edge
     /// across the bezel means the arrangement matches the desk. Rows past the display's own edges are left out.
-    public static func guides(on index: Int, in displays: [Display]) -> [CGFloat] {
+    public static func guides(on index: Int, in displays: [Display]) -> [Guide] {
         let d = displays[index]
-        let rows = displays.indices.filter { $0 != index }.flatMap { j in
-            levels(of: displays[j].heightMM).map { ($0 + displays[j].topMM - d.topMM) / d.mmPerPoint }
+        let guides = displays.indices.filter { $0 != index }.flatMap { j in
+            levels(of: displays[j].heightMM).map { Guide(row: ($0 + displays[j].topMM - d.topMM) / d.mmPerPoint, source: j) }
         }
-        return rows.filter { (-0.5...(d.frame.height + 0.5)).contains($0) }
+        return guides.filter { (-0.5...(d.frame.height + 0.5)).contains($0.row) }
     }
 
-    /// Where display `d`, stacked above or below `host`, sits against it: its left edge in mm from the host's left
-    /// edge, and whether it is below. An offset into the host is measured at the host's scale, an overhang past its
-    /// left edge at `d`'s own, so it touches the host on the canvas whenever it does in macOS. Only the macOS
-    /// arrangement matters for these displays.
-    public static func stack(_ d: Display, on host: Display) -> (leftMM: CGFloat, below: Bool) {
-        let points = d.frame.minX - host.frame.minX
-        return (points * (points >= 0 ? host.mmPerPoint : d.mmPerPoint), d.frame.midY > host.frame.midY)
+    /// A guide line: its row (points from the display's top) and the index of the display whose edge it marks.
+    public struct Guide: Equatable, Sendable {
+        public let row: CGFloat
+        public let source: Int
     }
 
-    /// The origin in global points that puts display `d` `leftMM` right of `host`'s left edge, touching its bottom
-    /// or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they reach into
-    /// its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
+    /// Where a display with `frame` (global points), stacked above or below `host`, sits against it: its left edge
+    /// in mm from the host's left edge, and whether it is below. It's measured at the host's scale, as macOS lines
+    /// the two up in points, so it's drawn the size its resolution makes it next to the host and touches it exactly
+    /// where the cursor crosses. Only the macOS arrangement matters for these displays.
+    public static func stack(_ frame: CGRect, on host: Display) -> (leftMM: CGFloat, below: Bool) {
+        ((frame.minX - host.frame.minX) * host.mmPerPoint, frame.midY > host.frame.midY)
+    }
+
+    /// The origin in global points that puts a display `size` big `leftMM` right of `host`'s left edge, touching
+    /// its bottom or top: the inverse of `stack`. It slides clear of `others` (the host's row neighbors) where they
+    /// reach into its rows, as Quartz would, and keeps a column on the host. Nil when no spot does both.
     public static func origin(
-        stacking d: Display, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
+        stacking size: CGSize, leftMM: CGFloat, below: Bool, on host: Display, clearOf others: [CGRect] = []
     ) -> CGPoint? {
-        let size = d.frame.size
         let y = below ? host.frame.maxY : host.frame.minY - size.height
         var lowest = host.frame.minX - size.width + 1, highest = host.frame.maxX - 1
         for o in others where o.minY < y + size.height && y < o.maxY {
             if o.midX > host.frame.midX { highest = min(highest, o.minX - size.width) } else { lowest = max(lowest, o.maxX) }
         }
         guard lowest <= highest else { return nil }
-        let x = host.frame.minX + leftMM / (leftMM >= 0 ? host.mmPerPoint : d.mmPerPoint)
+        let x = host.frame.minX + leftMM / host.mmPerPoint
         return CGPoint(x: min(max(x.rounded(), lowest), highest), y: y)
     }
 

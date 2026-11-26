@@ -2,12 +2,19 @@ import AppKit
 import BridgeCore
 import SwiftUI
 
-/// Yellow lines drawn over the real displays while arranging with guides on. Each display shows the top, center
-/// and bottom of the others at their physical height (`Arrangement.guides(on:in:)`), so a line that runs level
-/// into the neighbor's actual bezel edge means the arrangement matches the desk. Clicks pass through.
+/// Lines drawn over the real displays while arranging with guides on. Each display shows the top, center and bottom
+/// of the others at their physical height (`Arrangement.guides(on:in:)`), in the color of the display they come
+/// from (`color(_:)`, also marked on its tile), so a line that runs level into that display's actual bezel edge
+/// means the arrangement matches the desk. Clicks pass through.
 @MainActor
 enum GuideOverlay {
     private static var panels: [CGDirectDisplayID: NSPanel] = [:]
+
+    /// The guide color of the display at `index` in the row, left to right: blue, yellow, green, then on.
+    static func color(_ index: Int) -> NSColor {
+        let colors: [NSColor] = [.systemBlue, .systemYellow, .systemGreen, .systemOrange, .systemPink, .systemPurple, .systemTeal]
+        return colors[index % colors.count]
+    }
 
     /// Shows the lines for `displays` (as arranged, with any drag in progress), indexed like `ids`.
     /// Runs on every drag step, so it only redraws lines and touches panels that changed.
@@ -24,7 +31,7 @@ enum GuideOverlay {
             let f = displays[i].frame
             let frame = CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height)
             if panel.frame != frame { panel.setFrame(frame, display: false) }
-            (panel.contentView as? GuideLinesView)?.rows = Arrangement.guides(on: i, in: displays)
+            (panel.contentView as? GuideLinesView)?.guides = Arrangement.guides(on: i, in: displays)
             if !panel.isVisible { panel.orderFrontRegardless() }
         }
     }
@@ -33,7 +40,8 @@ enum GuideOverlay {
 
     private static func makePanel() -> NSPanel {
         let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        panel.level = .statusBar
+        // Over a display dimmed by `Shade`, under the menu's own popup.
+        panel.level = Shade.level + 1
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
@@ -44,19 +52,20 @@ enum GuideOverlay {
     }
 }
 
-/// Full-width lines at `rows`, in points from the top, snapped to device pixels and kept inside the edges.
+/// Full-width lines at the guides' rows, in points from the top, in their source display's color, snapped to
+/// device pixels and kept inside the edges.
 private final class GuideLinesView: NSView {
-    var rows: [CGFloat] = [] {
-        didSet { if rows != oldValue { needsDisplay = true } }
+    var guides: [Arrangement.Guide] = [] {
+        didSet { if guides != oldValue { needsDisplay = true } }
     }
     private static let thickness: CGFloat = 2
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.systemYellow.setFill()
-        for row in rows {
-            let y = min(max(row - Self.thickness / 2, 0), bounds.height - Self.thickness)
+        for guide in guides {
+            GuideOverlay.color(guide.source).setFill()
+            let y = min(max(guide.row - Self.thickness / 2, 0), bounds.height - Self.thickness)
             backingAlignedRect(CGRect(x: 0, y: y, width: bounds.width, height: Self.thickness), options: .alignAllEdgesNearest).fill()
         }
     }
