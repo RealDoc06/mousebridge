@@ -99,11 +99,15 @@ import Testing
     #expect(Arrangement.origin(stacking: size, leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
 }
 
-@Test func stackedGuidesMarkTheOtherDisplaysEdges() {
-    // An iPad below the Lenovo hanging past its right edge: each shows the other's edges that fall on it.
-    let ipad = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
-    #expect(Arrangement.columns(on: lenovo.frame, of: ipad) == [1236, 2007.5])
-    #expect(Arrangement.columns(on: ipad, of: lenovo.frame) == [44, 1324])
+@Test func stackedGuidesMarkTheOtherDisplaysPhysicalEdges() {
+    // A 265 mm iPad 100 mm in from the Lenovo's left edge along the desk, wherever macOS has it.
+    var desk = lenovo
+    desk.leftMM = 542
+    let ipad = Display(frame: CGRect(x: 1017, y: 1440, width: 1543, height: 1157), widthMM: 265, leftMM: 642)
+    let onLenovo = Arrangement.columns(on: desk, of: ipad)
+    #expect(onLenovo.count == 3 && abs(onLenovo[0] - 100 / lenovo.mmPerPoint) < 0.001)
+    // On the iPad, only the Lenovo's center (301 mm in) falls on it, 201 mm in from the iPad's left edge.
+    #expect(Arrangement.columns(on: ipad, of: desk).map { ($0 * ipad.mmPerPoint).rounded() } == [201])
 }
 
 @Test func rowMapDrawsEachColumnAtItsDisplaysScale() {

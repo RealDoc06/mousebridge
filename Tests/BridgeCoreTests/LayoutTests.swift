@@ -74,3 +74,43 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
     // An iPad above the MSI also touches the Lenovo's left edge; macOS put the cursor on it, outside the row.
     #expect(desk.remap(from: CGPoint(x: 2, y: 100), to: CGPoint(x: -1, y: 100), delta: CGVector(dx: -3, dy: 0)) == nil)
 }
+
+/// The desk with an iPad below the Lenovo, physically 100 mm in from its left edge, though macOS has it at x 1017.
+private let stackedDesk: (layout: Layout, ipad: Display) = {
+    var m = msi, l = lenovo
+    l.leftMM = m.widthMM
+    m.leftMM = 0
+    let ipad = Display(frame: CGRect(x: 1017, y: 1440, width: 1543, height: 1157), widthMM: 265, leftMM: l.leftMM + 100)
+    return (Layout(displays: [l, m], stacked: [.init(ipad, below: true)]), ipad)
+}()
+
+@Test func crossingDownLandsWhereTheStackedDisplayPhysicallyIs() throws {
+    let (layout, ipad) = stackedDesk
+    // 30 mm in from the iPad's left edge, where macOS has no display below and clamps the cursor.
+    let x = (100 + 30) / lenovo.mmPerPoint
+    let target = try #require(layout.remap(from: CGPoint(x: x, y: 1438), to: CGPoint(x: x, y: 1439), delta: CGVector(dx: 0, dy: 2)))
+    #expect(abs(target.x - (ipad.frame.minX + 30 / ipad.mmPerPoint)) < 0.01)
+    #expect(target.y == ipad.frame.minY + Layout.landingInset)
+}
+
+@Test func crossingDownIsBlockedWhereNothingPhysicallyIs() {
+    let (layout, _) = stackedDesk
+    // macOS crosses at x 2000, past the iPad's physical right edge: the cursor stays on the Lenovo.
+    #expect(layout.remap(from: CGPoint(x: 2000, y: 1438), to: CGPoint(x: 2000, y: 1442), delta: CGVector(dx: 0, dy: 4)) == CGPoint(x: 2000, y: 1439))
+    // Left of it, macOS clamps on its own.
+    #expect(layout.remap(from: CGPoint(x: 300, y: 1438), to: CGPoint(x: 300, y: 1439), delta: CGVector(dx: 0, dy: 2)) == nil)
+    // Away from the edge, nothing happens.
+    #expect(layout.remap(from: CGPoint(x: 600, y: 700), to: CGPoint(x: 600, y: 704), delta: CGVector(dx: 0, dy: 4)) == nil)
+}
+
+@Test func crossingUpLandsOnTheRowDisplayInFront() throws {
+    let (layout, ipad) = stackedDesk
+    let target = try #require(layout.remap(from: CGPoint(x: 1100, y: 1442), to: CGPoint(x: 1100, y: 1440), delta: CGVector(dx: 0, dy: -2)))
+    let mm = 100 + (1100 - ipad.frame.minX) * ipad.mmPerPoint
+    #expect(abs(target.x - mm / lenovo.mmPerPoint) < 0.01)
+    #expect(target.y == lenovo.frame.maxY - 1 - Layout.landingInset)
+}
+
+@Test func distanceCountsTheWholeEdgeTowardAStackedDisplay() {
+    #expect(stackedDesk.layout.distanceToSharedEdge(CGPoint(x: -1800, y: 1400)) == 40)
+}
