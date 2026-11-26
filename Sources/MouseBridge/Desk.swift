@@ -29,18 +29,19 @@ final class Desk {
     /// one sharing the most edge, then the main display's. A display stacked above or below them is in `stacked`
     /// instead.
     var row: [Screen] { screens.filter { rowIDs.contains($0.id) } }
-    /// Displays directly above or below one in the row. The cursor bridge leaves them alone, since macOS crosses
-    /// vertical edges fine.
+    /// Displays directly above or below one in the row. macOS crosses vertical edges fine, so the cursor bridge
+    /// leaves them alone unless another display outside the row sits beside them (see `bridged`).
     var stacked: [Stacked] {
         let row = row
         return screens.compactMap { s in
             stackedHosts[s.id].flatMap { h in row.firstIndex { $0.id == h } }.map { Stacked(screen: s, host: $0) }
         }
     }
-    /// The displays the cursor bridge remaps crossings between: all but stacked ones with no stacked display beside
-    /// them. A 2×2 grid's other pair keeps its bridge; an iPad under a monitor is left to macOS.
+    /// The displays the cursor bridge remaps crossings between: all but stacked ones with no display outside the row
+    /// beside them. A 2×2 grid's other pair keeps its bridge; an iPad under a monitor is left to macOS. Displays left
+    /// out of the arrangement stay in.
     private var bridged: [Display] {
-        let frames = screens.filter { stackedHosts[$0.id] != nil }.map(\.display.frame)
+        let frames = screens.filter { !rowIDs.contains($0.id) }.map(\.display.frame)
         return screens.filter { s in
             stackedHosts[s.id] == nil || frames.contains { Layout.borders(s.display.frame, $0) || Layout.borders($0, s.display.frame) }
         }.map(\.display)
