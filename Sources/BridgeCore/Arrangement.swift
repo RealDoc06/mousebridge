@@ -60,24 +60,31 @@ public enum Arrangement {
     public static func guides(on index: Int, in displays: [Display]) -> [Guide] {
         let d = displays[index]
         let guides = displays.indices.filter { $0 != index }.flatMap { j in
-            levels(of: displays[j].heightMM).map { Guide(row: ($0 + displays[j].topMM - d.topMM) / d.mmPerPoint, source: j) }
+            levels(of: displays[j].heightMM).enumerated().map { k, level in
+                Guide(at: (level + displays[j].topMM - d.topMM) / d.mmPerPoint, source: j, center: k == 1)
+            }
         }
-        return guides.filter { (-0.5...(d.frame.height + 0.5)).contains($0.row) }
+        return guides.filter { (-0.5...(d.frame.height + 0.5)).contains($0.at) }
     }
 
     /// Columns (points from `d`'s left) under or over the left edge, center and right edge of `other`, a display
     /// stacked against it, by where each sits along the desk (`leftMM`): where the cursor bridge crosses between them.
     /// Drawn on the real screen, a column that runs straight into that display's actual bezel edge means its
     /// position matches the desk. Columns past the display's own edges are left out.
-    public static func columns(on d: Display, of other: Display) -> [CGFloat] {
-        [0, other.widthMM / 2, other.widthMM].map { (other.leftMM + $0 - d.leftMM) / d.mmPerPoint }
-            .filter { (-0.5...(d.frame.width + 0.5)).contains($0) }
+    /// `source` is `other`'s index, carried into the guides.
+    public static func columns(on d: Display, of other: Display, source: Int) -> [Guide] {
+        [0, other.widthMM / 2, other.widthMM].enumerated()
+            .map { k, mm in Guide(at: (other.leftMM + mm - d.leftMM) / d.mmPerPoint, source: source, center: k == 1) }
+            .filter { (-0.5...(d.frame.width + 0.5)).contains($0.at) }
     }
 
-    /// A guide line: its row (points from the display's top) and the index of the display whose edge it marks.
+    /// A guide line: where it is and the index of the display whose edge or center it marks.
     public struct Guide: Equatable, Sendable {
-        public let row: CGFloat
+        /// Points from the display's top (a row) or left edge (a column).
+        public let at: CGFloat
         public let source: Int
+        /// Marks the other display's center rather than an edge.
+        public let center: Bool
     }
 
     /// Where a stacked display sits along the desk before it's placed by hand, as an offset (mm) of its left edge from
