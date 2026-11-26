@@ -2,41 +2,65 @@ import AppKit
 import BridgeCore
 import SwiftUI
 
-/// Lines drawn over the real displays while arranging with guides on. Each display shows the top, center and bottom
-/// of the others at their physical height (`Arrangement.guides(on:in:)`), in the color of the display they come
-/// from (`color(_:)`, also marked on its tile), so a line that runs level into that display's actual bezel edge
-/// means the arrangement matches the desk. Clicks pass through.
+/// Lines drawn over the real displays while arranging with guides on, in the color of the display they come from
+/// (`color(_:)`, also marked on its tile). Each row display shows the top, center and bottom of the others at their
+/// physical height (`Arrangement.guides(on:in:)`), so a line that runs level into that display's actual bezel edge
+/// means the arrangement matches the desk. A stacked display and its host show each other's left edge, center and
+/// right edge as columns (`Arrangement.columns(on:of:)`), the same check across a top or bottom edge. Clicks pass
+/// through.
 @MainActor
 enum GuideOverlay {
+    /// A display stacked above or below the row: its frame, the frame it's being dragged to (the same when it isn't),
+    /// and the index in the row of the display it sits on there.
+    struct Stacked: Equatable {
+        let id: CGDirectDisplayID
+        let frame: CGRect
+        let placed: CGRect
+        let host: Int
+    }
+
     private static var panels: [CGDirectDisplayID: NSPanel] = [:]
 
-    /// The guide color of the display at `index` in the row, left to right: blue, yellow, green, then on.
+    /// The guide color of the display at `index`, counting the row left to right and then the stacked displays:
+    /// blue, yellow, green, then on.
     static func color(_ index: Int) -> NSColor {
         let colors: [NSColor] = [.systemBlue, .systemYellow, .systemGreen, .systemOrange, .systemPink, .systemPurple, .systemTeal]
         return colors[index % colors.count]
     }
 
-    /// Shows the lines for `displays` (as arranged, with any drag in progress), indexed like `ids`.
-    /// Runs on every drag step, so it only redraws lines and touches panels that changed.
-    static func show(_ ids: [CGDirectDisplayID], _ displays: [Display]) {
-        for (id, panel) in panels where !ids.contains(id) {
+    /// Shows the lines for the row `displays` (as arranged, with any drag in progress), indexed like `ids`, and for
+    /// the `stacked` displays. Runs on every drag step, so it only redraws lines and touches panels that changed.
+    static func show(_ ids: [CGDirectDisplayID], _ displays: [Display], stacked: [Stacked]) {
+        let shown = ids + stacked.map(\.id)
+        for (id, panel) in panels where !shown.contains(id) {
             panel.orderOut(nil)
             panels[id] = nil
         }
-        // Panels are placed from Quartz's frames, which update before AppKit's screen list after a reorder.
-        let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
         for (i, id) in ids.enumerated() {
-            let panel = panels[id] ?? makePanel()
-            panels[id] = panel
-            let f = displays[i].frame
-            let frame = CGRect(x: f.minX, y: mainHeight - f.maxY, width: f.width, height: f.height)
-            if panel.frame != frame { panel.setFrame(frame, display: false) }
-            (panel.contentView as? GuideLinesView)?.guides = Arrangement.guides(on: i, in: displays)
-            if !panel.isVisible { panel.orderFrontRegardless() }
+            let rows = Arrangement.guides(on: i, in: displays).map { Line(at: $0.row, vertical: false, source: $0.source) }
+            let columns = stacked.enumerated().filter { $1.host == i }.flatMap { k, s in
+                Arrangement.columns(on: displays[i].frame, of: s.placed).map { Line(at: $0, vertical: true, source: ids.count + k) }
+            }
+            draw(rows + columns, on: id, at: displays[i].frame)
+        }
+        // On the stacked display as it is now, where its host's edges will fall once it's moved.
+        for s in stacked {
+            let columns = Arrangement.columns(on: s.placed, of: displays[s.host].frame)
+            draw(columns.map { Line(at: $0, vertical: true, source: s.host) }, on: s.id, at: s.frame)
         }
     }
 
     static func hide() { panels.values.forEach { $0.orderOut(nil) } }
+
+    /// Puts `id`'s panel over `f` (Quartz's frame, which updates before AppKit's screen list after a reorder).
+    private static func draw(_ lines: [Line], on id: CGDirectDisplayID, at f: CGRect) {
+        let panel = panels[id] ?? makePanel()
+        panels[id] = panel
+        let frame = CGRect(x: f.minX, y: CGDisplayBounds(CGMainDisplayID()).height - f.maxY, width: f.width, height: f.height)
+        if panel.frame != frame { panel.setFrame(frame, display: false) }
+        (panel.contentView as? GuideLinesView)?.lines = lines
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
 
     private static func makePanel() -> NSPanel {
         let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -52,21 +76,29 @@ enum GuideOverlay {
     }
 }
 
-/// Full-width lines at the guides' rows, in points from the top, in their source display's color, snapped to
-/// device pixels and kept inside the edges.
+/// A guide line `at` points from the display's top (a row) or left (a column), in its source display's color.
+private struct Line: Equatable {
+    let at: CGFloat
+    let vertical: Bool
+    let source: Int
+}
+
+/// Full-length lines, snapped to device pixels and kept inside the edges.
 private final class GuideLinesView: NSView {
-    var guides: [Arrangement.Guide] = [] {
-        didSet { if guides != oldValue { needsDisplay = true } }
+    var lines: [Line] = [] {
+        didSet { if lines != oldValue { needsDisplay = true } }
     }
     private static let thickness: CGFloat = 2
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        for guide in guides {
-            GuideOverlay.color(guide.source).setFill()
-            let y = min(max(guide.row - Self.thickness / 2, 0), bounds.height - Self.thickness)
-            backingAlignedRect(CGRect(x: 0, y: y, width: bounds.width, height: Self.thickness), options: .alignAllEdgesNearest).fill()
+        for line in lines {
+            GuideOverlay.color(line.source).setFill()
+            let rect = line.vertical
+                ? CGRect(x: min(max(line.at - Self.thickness / 2, 0), bounds.width - Self.thickness), y: 0, width: Self.thickness, height: bounds.height)
+                : CGRect(x: 0, y: min(max(line.at - Self.thickness / 2, 0), bounds.height - Self.thickness), width: bounds.width, height: Self.thickness)
+            backingAlignedRect(rect, options: .alignAllEdgesNearest).fill()
         }
     }
 }

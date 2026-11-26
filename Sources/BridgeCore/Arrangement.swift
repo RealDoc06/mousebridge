@@ -65,6 +65,14 @@ public enum Arrangement {
         return guides.filter { (-0.5...(d.frame.height + 0.5)).contains($0.row) }
     }
 
+    /// Columns (points from `frame`'s left) under or over the left edge, center and right edge of `other`, a display
+    /// stacked against it: where the cursor crosses between the two in macOS. Drawn on the real screen, a column that
+    /// runs straight into that display's actual bezel edge means the arrangement matches the desk. Columns past the
+    /// display's own edges are left out.
+    public static func columns(on frame: CGRect, of other: CGRect) -> [CGFloat] {
+        [other.minX, other.midX, other.maxX].map { $0 - frame.minX }.filter { (-0.5...(frame.width + 0.5)).contains($0) }
+    }
+
     /// A guide line: its row (points from the display's top) and the index of the display whose edge it marks.
     public struct Guide: Equatable, Sendable {
         public let row: CGFloat

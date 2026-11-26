@@ -105,3 +105,10 @@ import Testing
     let size = CGSize(width: 1543, height: 1157)
     #expect(Arrangement.origin(stacking: size, leftMM: 0, below: false, on: host, clearOf: neighbors) == nil)
 }
+
+@Test func stackedGuidesMarkTheOtherDisplaysEdges() {
+    // An iPad below the Lenovo hanging past its right edge: each shows the other's edges that fall on it.
+    let ipad = CGRect(x: 1236, y: 1440, width: 1543, height: 1157)
+    #expect(Arrangement.columns(on: lenovo.frame, of: ipad) == [1236, 2007.5])
+    #expect(Arrangement.columns(on: ipad, of: lenovo.frame) == [44, 1324])
+}

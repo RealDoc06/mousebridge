@@ -50,15 +50,25 @@ struct ArrangementView: View {
         Panel {
             Text("Arrangement")
             Spacer()
-            // A display alone in the row has nothing to nudge against or line up with.
-            if desk.row.count > 1 { controls(target: target) }
+            controls(target: target)
         } content: {
             canvas(target: target)
         }
     }
 
-    /// The arrows that nudge the selected display a pixel, and the guides toggle.
+    /// The arrows that nudge the selected display a pixel, and the guides toggle. A display alone in the row has
+    /// nothing to nudge against, and with nothing stacked on it either, nothing to line up with.
     @ViewBuilder private func controls(target: CGDirectDisplayID?) -> some View {
+        if desk.row.count > 1 { arrows(target: target) }
+        if desk.row.count > 1 || !desk.stacked.isEmpty {
+            Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+                .foregroundStyle(desk.guides ? .yellow : .secondary)
+                .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+                .fontWeight(.regular)
+        }
+    }
+
+    private func arrows(target: CGDirectDisplayID?) -> some View {
         Group {
             Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
                 .help("Move the selected display up a pixel")
@@ -68,10 +78,12 @@ struct ArrangementView: View {
         .buttonRepeatBehavior(.enabled)
         .foregroundStyle(.secondary)
         .fontWeight(.regular)
-        Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
-            .foregroundStyle(desk.guides ? .yellow : .secondary)
-            .help(desk.guides ? "Hide guides" : "Show guides on the displays")
-            .fontWeight(.regular)
+    }
+
+    /// What the guides show: the row as arranged and the stacked displays, drags included.
+    private struct Guides: Equatable {
+        let row: [Display]
+        let stacked: [GuideOverlay.Stacked]
     }
 
     /// How the canvas maps mm to points, for a row laid out from 0 at `inset`.
@@ -165,7 +177,19 @@ struct ArrangementView: View {
         let placed = arranged(undocking == nil ? drag : nil, scale: f.scale)
         let slots = lefts(placed.order)
         let rowLefts = desk.row.indices.map { shift + (drag?.id == desk.row[$0].id && undocking == nil ? placed.left : slots[$0]) }
-        let guideColor = { (i: Int) in desk.guides && row.count > 1 ? Color(nsColor: GuideOverlay.color(i)) : nil }
+        // Where each stacked display is drawn, and the macOS frame a drag would give it.
+        let placements = Dictionary(uniqueKeysWithValues: stacked.map { s in
+            let offset = drag?.id == s.screen.id ? drag?.offset : nil
+            return (s.screen.id, place(s, offset: offset, row: placed.displays, lefts: rowLefts, span: f.span, scale: f.scale))
+        })
+        let guidesOn = desk.guides && (row.count > 1 || !stacked.isEmpty)
+        let guideColor = { (i: Int) in guidesOn ? Color(nsColor: GuideOverlay.color(i)) : nil }
+        let guides = Guides(row: placed.displays, stacked: stacked.map { s in
+            let d = s.screen.display
+            let frame = docking?.0.screen.id == s.screen.id ? d.frame : placements[s.screen.id]?.frame ?? d.frame
+            let host = Arrangement.host(of: frame, among: row.map(\.frame)) ?? s.host
+            return GuideOverlay.Stacked(id: s.screen.id, frame: d.frame, placed: frame, host: host)
+        })
 
         return ZStack(alignment: .topLeading) {
             ForEach(Array(desk.row.enumerated()), id: \.element.id) { i, screen in
@@ -197,7 +221,7 @@ struct ArrangementView: View {
                             }
                     )
             }
-            ForEach(stacked, id: \.screen.id) { s in
+            ForEach(Array(stacked.enumerated()), id: \.element.screen.id) { k, s in
                 let d = s.screen.display
                 let dragged = drag?.id == s.screen.id
                 // Docking, it's drawn at its physical size at the row's end, where it will sit in the row.
@@ -206,8 +230,8 @@ struct ArrangementView: View {
                         left: end == .left ? 0 : row.map(\.widthMM).reduce(0, +), top: display.topMM,
                         size: CGSize(width: display.widthMM, height: display.heightMM), frame: d.frame
                     )
-                } ?? place(s, offset: dragged ? drag?.offset : nil, row: placed.displays, lefts: rowLefts, span: f.span, scale: f.scale)
-                tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false, guide: nil)
+                } ?? placements[s.screen.id] ?? place(s, offset: nil, row: placed.displays, lefts: rowLefts, span: f.span, scale: f.scale)
+                tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false, guide: guideColor(row.count + k))
                     .frame(width: p.size.width * f.scale, height: p.size.height * f.scale)
                     .offset(x: f.inset + p.left * f.scale, y: (p.top - f.originMM) * f.scale)
                     .zIndex(dragged ? 1 : 0)
@@ -228,8 +252,8 @@ struct ArrangementView: View {
         .coordinateSpace(.named(Self.space))
         // The guides follow the displays as arranged, drag included, and leave with the popup.
         .background(OnWindowVisibility { open = $0 })
-        .onChange(of: open && desk.guides && row.count > 1 ? placed.displays : nil, initial: true) { _, shown in
-            if let shown { GuideOverlay.show(desk.row.map(\.id), shown) } else { GuideOverlay.hide() }
+        .onChange(of: open && guidesOn ? guides : nil, initial: true) { _, shown in
+            if let shown { GuideOverlay.show(desk.row.map(\.id), shown.row, stacked: shown.stacked) } else { GuideOverlay.hide() }
         }
         .onDisappear { GuideOverlay.hide() }
     }
