@@ -59,7 +59,7 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if desk.screens.count > 1, desk.isRow {
+            if desk.row.count > 1 {
                 HStack {
                     Text("Arrangement").font(.headline)
                     Spacer()

@@ -15,6 +15,18 @@ final class Desk {
 
     /// Left to right, as macOS arranges them.
     private(set) var screens: [Screen] = []
+    /// The displays that sit side by side in macOS, left to right, each touching the next with rows in common:
+    /// the ones the cursor bridge crosses between. Empty unless they form one row. A display stacked above or
+    /// below them is left out.
+    var row: [Screen] {
+        let touching = { (a: CGRect, b: CGRect) in abs(b.minX - a.maxX) < 1 && a.minY < b.maxY && b.minY < a.maxY }
+        let side = screens.filter { s in
+            screens.contains { touching(s.display.frame, $0.display.frame) || touching($0.display.frame, s.display.frame) }
+        }
+        return zip(side, side.dropFirst()).allSatisfy { touching($0.display.frame, $1.display.frame) } ? side : []
+    }
+    /// True when the row holds every active display, so reordering it can't overlap one left out.
+    var canReorder: Bool { row.count == activeCount }
     /// Shows lines where display edges line up, and snaps drags to them.
     var guides = UserDefaults.standard.bool(forKey: "guides") {
         didSet { UserDefaults.standard.set(guides, forKey: "guides") }
@@ -24,11 +36,7 @@ final class Desk {
 
     private static let topsKey = "physicalTops"
 
-    /// True when the displays sit side by side in macOS, each touching the next with rows in common.
-    /// Only then does the arrangement match the desk; stacked displays are left to macOS.
-    private(set) var isRow = false
-    /// True when the displays form a row and every active display is in it, so reordering can't overlap one left out.
-    private(set) var canReorder = false
+    private var activeCount = 0
 
     /// Re-reads geometry and physical sizes. Call after the display setup changes.
     /// Displays never arranged here start lined up by the old Top/Center/Bottom setting.
@@ -38,12 +46,11 @@ final class Desk {
         let active = activeDisplays()
         // A mirror shows another display's content, so only the display it mirrors takes a place.
         let ids = active.filter { CGDisplayScreenSize($0).width > 0 && CGDisplayMirrorsDisplay($0) == kCGNullDirectDisplay }
-        // Identical monitors that report no serial share a key, so those also key by the port they're on.
-        let keys = ids.map(persistentKey)
-        var screens = zip(ids, keys).map { id, key in
+        // Identical monitors that report no serial would share a key, so those also key by the port they're on.
+        var screens = ids.map { id in
             Screen(
                 id: id,
-                key: keys.filter { $0 == key }.count > 1 ? "\(key)-\(CGDisplayUnitNumber(id))" : key,
+                key: CGDisplaySerialNumber(id) == 0 ? "\(persistentKey(id))-\(CGDisplayUnitNumber(id))" : persistentKey(id),
                 display: Display(frame: CGDisplayBounds(id), widthMM: CGDisplayScreenSize(id).width)
             )
         }
@@ -59,11 +66,7 @@ final class Desk {
             }
         }
         self.screens = screens
-        isRow = zip(screens, screens.dropFirst()).allSatisfy { a, b in
-            let a = a.display.frame, b = b.display.frame
-            return abs(b.minX - a.maxX) < 1 && a.minY < b.maxY && b.minY < a.maxY
-        }
-        canReorder = isRow && screens.count == active.count
+        activeCount = active.count
         onChange?(screens.map(\.display))
     }
 

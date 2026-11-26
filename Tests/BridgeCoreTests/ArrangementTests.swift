@@ -41,3 +41,23 @@ let bottomTop = msi.topMM
     #expect(Arrangement.order(widths: [602, 302], dragging: 1, toLeft: 302) == [0, 1])
     #expect(Arrangement.order(widths: [602, 302], dragging: 1, toLeft: 300) == [1, 0])
 }
+
+@Test func tallDisplayCoversAShortOneAnyWay() throws {
+    // A 32" (708 x 398 mm) beside a 14" laptop panel (302 x 196 mm) top-aligned at 0.
+    let laptop = Display(frame: CGRect(x: 0, y: 0, width: 1512, height: 982), widthMM: 302)
+    let big = Display(frame: CGRect(x: 1512, y: 0, width: 2560, height: 1440), widthMM: 708)
+    let bottomAligned = laptop.heightMM - big.heightMM
+    #expect(abs(Arrangement.place(1, at: bottomAligned, in: [laptop, big]) - bottomAligned) < 0.001)
+    #expect(Arrangement.place(1, at: 0, in: [laptop, big]) == 0)
+    // The canvas bounds hold either display at its furthest reach.
+    let bounds = Arrangement.bounds([laptop, big])
+    let reach = try #require(Arrangement.reach(1, in: [laptop, big]))
+    #expect(bounds.contains(reach.lowerBound) && bounds.contains(reach.upperBound + big.heightMM))
+}
+
+@Test func dragNeverPullsADisplayBackIntoReach() {
+    // The MSI left 200 mm below the Lenovo (say, by an older arrangement) stays put on a sideways-only drag.
+    var low = msi
+    low.topMM = 200
+    #expect(Arrangement.place(1, at: 200, in: [lenovo, low]) == 200)
+}
