@@ -10,9 +10,9 @@ final class EventTap {
     var bridgeEnabled = UserDefaults.standard.object(forKey: "bridgeEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(bridgeEnabled, forKey: "bridgeEnabled"); rebuildLayout() }
     }
-    /// How the displays line up physically on the desk.
-    var alignment = Alignment(rawValue: UserDefaults.standard.string(forKey: "alignment") ?? "") ?? .bottom {
-        didSet { UserDefaults.standard.set(alignment.rawValue, forKey: "alignment"); rebuildLayout() }
+    /// The displays with physical sizes, as arranged on the desk (see `Desk`).
+    @ObservationIgnored var displays: [Display] = [] {
+        didSet { rebuildLayout() }
     }
     /// False until Accessibility permission lets the tap start.
     private(set) var running = false
@@ -39,8 +39,6 @@ final class EventTap {
         source?.localEventsSuppressionInterval = 0
         return source
     }()
-
-    init() { rebuildLayout() }
 
     /// Starts the taps. Fails until the app has Accessibility permission.
     /// Brightness keys and mouse moves get separate taps so `TapGate` can switch the mouse one off
@@ -73,15 +71,9 @@ final class EventTap {
         return port
     }
 
-    /// Re-reads display geometry and physical sizes. Call after the display setup changes.
-    func rebuildLayout() {
+    private func rebuildLayout() {
         guard bridgeEnabled else { layout = nil; gate?.layout = nil; return }
-        let displays = activeDisplays().compactMap { id -> Display? in
-            let mm = CGDisplayScreenSize(id)
-            guard mm.width > 0 else { return nil } // no physical size reported: leave this display to macOS
-            return Display(frame: CGDisplayBounds(id), widthMM: mm.width)
-        }
-        layout = Layout(displays: displays, alignment: alignment)
+        layout = Layout(displays: displays)
         gate?.layout = layout
         last = CGEvent(source: nil)?.location ?? last
     }
