@@ -82,10 +82,13 @@ struct ArrangementView: View {
         var displays = desk.row.map(\.display)
         let identity = Array(displays.indices)
         guard let drag, let i = desk.row.firstIndex(where: { $0.id == drag.id }) else { return (displays, identity, 0) }
-        displays[i].topMM = Arrangement.place(
-            i, at: displays[i].topMM + drag.offset.height / scale, in: displays,
-            snapMM: desk.guides ? Self.snapPoints / scale : nil
-        )
+        // A sideways-only drag keeps the saved top, rather than snapping it to a nearby guide.
+        if drag.offset.height != 0 {
+            displays[i].topMM = Arrangement.place(
+                i, at: displays[i].topMM + drag.offset.height / scale, in: displays,
+                snapMM: desk.guides ? Self.snapPoints / scale : nil
+            )
+        }
         // Without reordering, the display only moves up and down.
         guard desk.canReorder else { return (displays, identity, lefts(identity)[i]) }
         let widths = displays.map(\.widthMM)

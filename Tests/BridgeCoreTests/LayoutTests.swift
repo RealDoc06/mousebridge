@@ -37,6 +37,15 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
     #expect(abs(mmAboveDesk(target.y, on: lenovo) - 40) < 0.5)
 }
 
+@Test func crossingSkipsDisplayStackedBelowTheNeighbor() throws {
+    // A laptop under the Lenovo, both starting at x = 0, spans the same physical heights as the Lenovo,
+    // but has no rows beside the MSI, so the MSI's crossings still land on the Lenovo.
+    let laptop = Display(frame: CGRect(x: 0, y: 1440, width: 1512, height: 982), widthMM: 302, topMM: 100)
+    let target = try #require(Layout(displays: [laptop, lenovo, msi])
+        .remap(from: CGPoint(x: -2, y: 900), to: CGPoint(x: 0.5, y: 900), delta: CGVector(dx: 3, dy: 0)))
+    #expect(lenovo.frame.contains(target))
+}
+
 @Test func leavesOtherMovesAlone() {
     #expect(desk.remap(from: CGPoint(x: 1000, y: 500), to: CGPoint(x: 1004, y: 500), delta: CGVector(dx: 4, dy: 0)) == nil)
     #expect(desk.remap(from: CGPoint(x: 2558, y: 500), to: CGPoint(x: 2559.5, y: 500), delta: CGVector(dx: 4, dy: 0)) == nil)

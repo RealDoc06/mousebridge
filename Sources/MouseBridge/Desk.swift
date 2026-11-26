@@ -18,15 +18,9 @@ final class Desk {
     /// The displays that sit side by side in macOS, left to right, each touching the next with rows in common:
     /// the ones the cursor bridge crosses between. Empty unless they form one row. A display stacked above or
     /// below them is left out.
-    var row: [Screen] {
-        let touching = { (a: CGRect, b: CGRect) in abs(b.minX - a.maxX) < 1 && a.minY < b.maxY && b.minY < a.maxY }
-        let side = screens.filter { s in
-            screens.contains { touching(s.display.frame, $0.display.frame) || touching($0.display.frame, s.display.frame) }
-        }
-        return zip(side, side.dropFirst()).allSatisfy { touching($0.display.frame, $1.display.frame) } ? side : []
-    }
+    var row: [Screen] { screens.filter { rowIDs.contains($0.id) } }
     /// True when the row holds every active display, so reordering it can't overlap one left out.
-    var canReorder: Bool { row.count == activeCount }
+    private(set) var canReorder = false
     /// Shows lines where display edges line up, and snaps drags to them.
     var guides = UserDefaults.standard.bool(forKey: "guides") {
         didSet { UserDefaults.standard.set(guides, forKey: "guides") }
@@ -36,7 +30,7 @@ final class Desk {
 
     private static let topsKey = "physicalTops"
 
-    private var activeCount = 0
+    private var rowIDs: Set<CGDirectDisplayID> = []
 
     /// Re-reads geometry and physical sizes. Call after the display setup changes.
     /// Displays never arranged here start lined up by the old Top/Center/Bottom setting.
@@ -66,7 +60,11 @@ final class Desk {
             }
         }
         self.screens = screens
-        activeCount = active.count
+        let frames = screens.map(\.display.frame)
+        let side = screens.filter { s in frames.contains { Layout.borders(s.display.frame, $0) || Layout.borders($0, s.display.frame) } }
+        let chained = zip(side, side.dropFirst()).allSatisfy { Layout.borders($0.display.frame, $1.display.frame) }
+        rowIDs = chained ? Set(side.map(\.id)) : []
+        canReorder = rowIDs.count == active.count
         onChange?(screens.map(\.display))
     }
 

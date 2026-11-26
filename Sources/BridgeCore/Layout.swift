@@ -56,9 +56,7 @@ public struct Layout: Sendable {
 
         let atEdge = left ? next.x < src.frame.minX + 1 : next.x >= src.frame.maxX - 1
         guard atEdge else { return nil }
-        let neighbors = displays.filter {
-            abs(left ? $0.frame.maxX - src.frame.minX : $0.frame.minX - src.frame.maxX) < 1
-        }
+        let neighbors = displays.filter { left ? Self.borders($0.frame, src.frame) : Self.borders(src.frame, $0.frame) }
 
         let y = min(max(next.y, src.frame.minY), src.frame.maxY - 1)
         let mm = src.topMM + (y - src.frame.minY) * src.mmPerPoint
@@ -76,11 +74,17 @@ public struct Layout: Sendable {
     /// no displays do. An edge spans the full height of both displays, since `remap` clamps onto the shorter one.
     public func distanceToSharedEdge(_ p: CGPoint) -> CGFloat? {
         displays.flatMap { a in
-            displays.filter { abs($0.frame.minX - a.frame.maxX) < 1 }.map { b in
+            displays.filter { Self.borders(a.frame, $0.frame) }.map { b in
                 let top = min(a.frame.minY, b.frame.minY), bottom = max(a.frame.maxY, b.frame.maxY)
                 return hypot(p.x - a.frame.maxX, max(top - p.y, p.y - bottom, 0))
             }
         }.min()
+    }
+
+    /// True when `b` sits directly right of `a` in global points with rows in common: an edge the cursor crosses.
+    /// A display stacked above or below `b` with no rows beside `a` doesn't count.
+    public static func borders(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(b.minX - a.maxX) < 1 && a.minY < b.maxY && b.minY < a.maxY
     }
 
     /// Vertical distance in mm from `mm` to `d`'s physical span, 0 when inside it.
