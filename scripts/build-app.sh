@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds a signed build/MouseBridge.app.
 # Usage: scripts/build-app.sh [version]   (default 0.0.0; build number = commit count)
-# Signs with the "Developer ID Application" identity, or SIGN_ID if set.
+# Signs with the "Developer ID Application" identity, or SIGN_ID if set. The HID virtual device entitlement (Control
+# Center brightness) needs the embedded Developer ID provisioning profile, which only matches the team's certificate.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -20,6 +21,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks"
 cp "$BIN/MouseBridge" "$APP/Contents/MacOS/"
 ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+cp signing/MouseBridge.provisionprofile "$APP/Contents/embedded.provisionprofile"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,6 +51,6 @@ sign "$SPARKLE/XPCServices/Installer.xpc"
 sign --preserve-metadata=entitlements "$SPARKLE/XPCServices/Downloader.xpc"
 sign "$SPARKLE/Autoupdate" "$SPARKLE/Updater.app"
 sign "$APP/Contents/Frameworks/Sparkle.framework"
-sign "$APP"
+sign --entitlements signing/MouseBridge.entitlements "$APP"
 codesign --verify --deep --strict "$APP"
 echo "built $APP $VERSION ($BUILD)"
