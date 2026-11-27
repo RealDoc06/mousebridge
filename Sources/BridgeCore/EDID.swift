@@ -43,7 +43,7 @@ public enum EDID {
     /// The ContainerID MouseBridge gives a display: hashed from the base block, which identifies the display (its
     /// serial number included) and which the patch leaves alone but for the extension count and checksum, so the
     /// ID stays the same across reconnects and before and after patching. Two displays with byte-identical base
-    /// blocks (no serial numbers) would share one.
+    /// blocks (no serial numbers) would share one, so `NativeBrightness` leaves those out.
     public static func ownContainerID(for edid: [UInt8]) -> UUID {
         var bytes = Array(SHA256.hash(data: edid.prefix(126)).prefix(16))
         bytes[6] = bytes[6] & 0x0F | 0x80 // RFC 9562 version 8 (custom), so it can't pass for a real one

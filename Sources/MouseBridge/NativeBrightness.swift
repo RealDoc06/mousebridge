@@ -36,11 +36,12 @@ final class NativeBrightness {
     func link(_ displays: [Display], onSet: @escaping (CGDirectDisplayID, Double) -> Void) -> [CGDirectDisplayID: BrightnessDevice] {
         var linked: [CGDirectDisplayID: BrightnessDevice] = [:]
         var live: [UUID: BrightnessDevice] = [:]
-        for display in displays {
-            let own = EDID.ownContainerID(for: display.edid)
+        let owns = displays.map { EDID.ownContainerID(for: $0.edid) }
+        for (display, own) in zip(displays, owns) {
             let current = EDID.containerID(in: display.edid)
-            // A display with its own ContainerID (an Apple display) already has its brightness device.
-            guard current == nil || current == own else { continue }
+            // A display with its own ContainerID (an Apple display) already has its brightness device. Displays with
+            // byte-identical EDIDs would share one device, so they stay on DDC alone.
+            guard current == nil || current == own, owns.count(where: { $0 == own }) == 1 else { continue }
             guard let device = devices[own] ?? BrightnessDevice(containerID: own, level: display.level, onSet: onSet) else {
                 log.error("no brightness device: is com.apple.developer.hid.virtual.device in the provisioning profile?")
                 continue
