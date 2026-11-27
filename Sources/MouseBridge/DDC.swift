@@ -95,7 +95,7 @@ final class DDC: @unchecked Sendable {
         return [UInt8](data as Data)
     }
 
-    /// Makes macOS use `edid` for the display instead of its own, until it reconnects or wakes from sleep. The
+    /// Makes macOS use `edid` for the display instead of its own, until it reconnects. The
     /// display goes black for a moment while macOS takes it up.
     func setVirtualEDID(_ edid: [UInt8]) -> Bool {
         Self.setVirtualEDID?(service, 1, Data(edid) as CFData) == kIOReturnSuccess

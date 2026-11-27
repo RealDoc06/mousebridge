@@ -13,8 +13,8 @@ import OSLog
 final class NativeBrightness {
     /// Live devices by ContainerID. Kept across reloads, so macOS keeps its link to each display.
     private var devices: [UUID: BrightnessDevice] = [:]
-    /// Displays patched since their ContainerID was last seen, so one that won't take the patch isn't blanked over
-    /// and over. Seeing the ContainerID clears it, and a later loss (reconnect, wake) patches again.
+    /// Displays patched and waiting for their ContainerID, so a display change in the meantime doesn't blank them
+    /// again. Seeing the ContainerID, a refused patch or the display going away clears it.
     private var patched: Set<UUID> = []
     private let log = Logger(subsystem: "it.realdoc06.mousebridge", category: "brightness")
 
@@ -27,8 +27,8 @@ final class NativeBrightness {
         let level: Double
     }
 
-    /// Sets up each display's device and returns them by display. `onSet` gets macOS's changes as the device's
-    /// ContainerID and the level (0...1).
+    /// Sets up each display's device and patches its EDID, and returns the devices of displays macOS has linked
+    /// (their EDID carries the ContainerID). `onSet` gets macOS's changes as the ContainerID and the level (0...1).
     func link(_ displays: [Display], onSet: @escaping (UUID, Double) -> Void) -> [CGDirectDisplayID: BrightnessDevice] {
         var linked: [CGDirectDisplayID: BrightnessDevice] = [:]
         var live: [UUID: BrightnessDevice] = [:]
@@ -39,20 +39,23 @@ final class NativeBrightness {
             guard current == nil || current == own else { continue }
             guard let device = devices[own] ?? BrightnessDevice(containerID: own, level: display.level, onSet: { onSet(own, $0) }) else {
                 log.error("no brightness device: is com.apple.developer.hid.virtual.device in the provisioning profile?")
-                return [:]
+                continue
             }
-            linked[display.id] = device
             live[own] = device
-            if current == nil, !patched.contains(own), let edid = EDID.addingContainerID(own, to: display.edid) {
-                patched.insert(own)
-                Task.detached { [log] in
-                    if !display.ddc.setVirtualEDID(edid) { log.error("virtual EDID refused for \(own)") }
-                }
-            } else if current != nil {
+            if current != nil {
+                linked[display.id] = device
                 patched.remove(own)
+            } else if !patched.contains(own), let edid = EDID.addingContainerID(own, to: display.edid) {
+                patched.insert(own)
+                Task.detached { [weak self, log] in
+                    guard !display.ddc.setVirtualEDID(edid) else { return }
+                    log.error("virtual EDID refused for \(own)")
+                    await MainActor.run { _ = self?.patched.remove(own) }
+                }
             }
         }
         devices = live
+        patched.formIntersection(live.keys)
         return linked
     }
 }
@@ -97,25 +100,28 @@ final class BrightnessDevice {
         self.device = device
         self.containerID = containerID
         self.level = level
-        // Reports carry the 16-bit value, after the report ID byte when there is one.
+        // Reports carry the report ID byte, then the 16-bit value.
         IOHIDUserDeviceRegisterGetReportBlock(device) { [weak self] type, id, report, length in
-            guard type == kIOHIDReportTypeFeature, id == Self.reportID, length.pointee >= 2 else { return kIOReturnUnsupported }
-            let value = MainActor.assumeIsolated { UInt16(((self?.level ?? 1) * Self.maxValue).rounded()) }
-            report[0] = UInt8(value & 0xFF)
-            report[1] = UInt8(value >> 8)
-            length.pointee = 2
+            guard type == kIOHIDReportTypeFeature, id == Self.reportID, length.pointee >= 3 else { return kIOReturnUnsupported }
+            guard let level = MainActor.assumeIsolated({ self?.level }) else { return kIOReturnNotReady }
+            let value = UInt16((level * Self.maxValue).rounded())
+            report[0] = UInt8(Self.reportID)
+            report[1] = UInt8(value & 0xFF)
+            report[2] = UInt8(value >> 8)
+            length.pointee = 3
             return kIOReturnSuccess
         }
         IOHIDUserDeviceRegisterSetReportBlock(device) { [weak self] type, id, report, length in
-            guard type == kIOHIDReportTypeFeature, id == Self.reportID, length >= 2 else { return kIOReturnUnsupported }
-            let at = length >= 3 ? 1 : 0
-            let level = min(Double(UInt16(report[at]) | UInt16(report[at + 1]) << 8) / Self.maxValue, 1)
+            guard type == kIOHIDReportTypeFeature, id == Self.reportID, length >= 3 else { return kIOReturnUnsupported }
+            let level = min(Double(UInt16(report[1]) | UInt16(report[2]) << 8) / Self.maxValue, 1)
             MainActor.assumeIsolated {
                 self?.level = level
                 onSet(level)
             }
             return kIOReturnSuccess
         }
+        // The device must outlive its cancellation, which ends after the last report.
+        IOHIDUserDeviceSetCancelHandler(device) { withExtendedLifetime(device) {} }
         IOHIDUserDeviceSetDispatchQueue(device, .main)
         IOHIDUserDeviceActivate(device)
     }
@@ -126,8 +132,14 @@ final class BrightnessDevice {
 /// macOS's brightness for displays with its slider, through DisplayServices' private API.
 enum SystemBrightness {
     private typealias Set = @convention(c) (CGDirectDisplayID, Float) -> Int32
+    private typealias Can = @convention(c) (CGDirectDisplayID) -> Bool
     nonisolated(unsafe) private static let displayServices = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_NOW)
     private static let setLinear = dlsym(displayServices, "DisplayServicesSetLinearBrightness").map { unsafeBitCast($0, to: Set.self) }
+    private static let canChange = dlsym(displayServices, "DisplayServicesCanChangeBrightness").map { unsafeBitCast($0, to: Can.self) }
+
+    /// True once macOS gives the display its slider, a moment after it links a `BrightnessDevice`. Until then it
+    /// ignores `set`.
+    static func isLinked(_ id: CGDirectDisplayID) -> Bool { canChange?(id) == true }
 
     /// Sets the display's luminance to `level` (0...1, linear, as `BrightnessDevice` reports it). False if macOS
     /// refused.

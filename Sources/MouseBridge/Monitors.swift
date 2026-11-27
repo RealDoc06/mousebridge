@@ -50,7 +50,8 @@ final class Monitor: Identifiable {
         let mirror = CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay
         dimming = ddcBrightness != nil ? .ddc : probe.virtual && !mirror ? .shade : .gamma
         if let ddcBrightness {
-            brightness = Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1))
+            brightness = min(Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1)), 1)
+            if native != nil { syncSystemBrightness() }
         } else {
             brightness = softwareBrightness ?? 1
             dim()
@@ -74,6 +75,15 @@ final class Monitor: Identifiable {
     func takeSystemBrightness(_ level: Double) {
         brightness = level
         sendBrightness()
+    }
+
+    /// Gives macOS's slider the display's level, since macOS keeps its own last level rather than reading the
+    /// device's. Waits (up to 3 s) for macOS to link a device that was just created.
+    private func syncSystemBrightness() {
+        Task {
+            for _ in 0..<30 where !SystemBrightness.isLinked(id) { try? await Task.sleep(for: .milliseconds(100)) }
+            _ = SystemBrightness.set(id, brightness)
+        }
     }
 
     private func sendBrightness() {
@@ -144,7 +154,7 @@ final class Monitors {
         let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
         let devices = native.link(probes.compactMap { p in
             guard let ddc = p.ddc, let edid = p.edid, let b = p.brightness else { return nil }
-            return .init(id: p.id, ddc: ddc, edid: edid, level: Double(b.value) / Double(max(b.max, 1)))
+            return .init(id: p.id, ddc: ddc, edid: edid, level: min(Double(b.value) / Double(max(b.max, 1)), 1))
         }) { [weak self] container, level in
             self?.all.first { $0.native?.containerID == container }?.takeSystemBrightness(level)
         }
