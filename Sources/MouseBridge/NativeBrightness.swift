@@ -15,7 +15,8 @@ final class NativeBrightness {
     private var devices: [UUID: BrightnessDevice] = [:]
     /// When each display waiting for its ContainerID was patched, so a display change in the meantime doesn't blank
     /// it again. Seeing the ContainerID, a refused patch or the display going away clears it, and it expires after
-    /// `patchTimeout` (a replug inside the reload debounce drops the patch unseen).
+    /// `patchTimeout` (a replug inside the reload debounce drops the patch unseen). A display that never shows the
+    /// ContainerID is patched again on display changes after that.
     private var patched: [UUID: ContinuousClock.Instant] = [:]
     private static let patchTimeout = Duration.seconds(10)
     private let log = Logger(subsystem: "it.realdoc06.mousebridge", category: "brightness")
@@ -30,8 +31,8 @@ final class NativeBrightness {
     }
 
     /// Sets up each display's device and patches its EDID, and returns the devices of displays macOS has linked
-    /// (their EDID carries the ContainerID). `onSet` gets macOS's changes as the display and the level (0...1), from
-    /// the moment macOS links it.
+    /// (their EDID carries the ContainerID). `onSet` gets macOS's changes as the display (as of the latest `link`)
+    /// and the level (0...1), from the moment macOS links it.
     func link(_ displays: [Display], onSet: @escaping (CGDirectDisplayID, Double) -> Void) -> [CGDirectDisplayID: BrightnessDevice] {
         var linked: [CGDirectDisplayID: BrightnessDevice] = [:]
         var live: [UUID: BrightnessDevice] = [:]
@@ -40,12 +41,12 @@ final class NativeBrightness {
             let current = EDID.containerID(in: display.edid)
             // A display with its own ContainerID (an Apple display) already has its brightness device.
             guard current == nil || current == own else { continue }
-            let id = display.id
-            guard let device = devices[own] ?? BrightnessDevice(containerID: own, level: display.level, onSet: { onSet(id, $0) }) else {
+            guard let device = devices[own] ?? BrightnessDevice(containerID: own, level: display.level, onSet: onSet) else {
                 log.error("no brightness device: is com.apple.developer.hid.virtual.device in the provisioning profile?")
                 continue
             }
             live[own] = device
+            device.display = display.id // A reconnect can give the display another ID.
             if current != nil {
                 linked[display.id] = device
                 patched[own] = nil
@@ -69,7 +70,9 @@ final class NativeBrightness {
 /// entitlement, without which `init` fails.
 @MainActor
 final class BrightnessDevice {
-    /// False until macOS's slider has been given the display's level (see `Monitor`).
+    /// The display it's linked to.
+    var display: CGDirectDisplayID = kCGNullDirectDisplay
+    /// True once macOS's slider has been given the display's level, or while that waits for macOS (see `Monitors`).
     var seeded = false
     /// The level macOS reads back (0...1, linear in luminance): the last it set, or the display's when created.
     private(set) var level: Double
@@ -91,8 +94,8 @@ final class BrightnessDevice {
                 0x67, 0xE1, 0x00, 0x00, 0x01, 0x55, 0x00, 0x75, 0x10, 0x95, 0x01, 0xB1, 0x02, 0x65, 0x00, 0xC0]
     }()
 
-    /// `onSet` runs on the main thread with each level macOS sets.
-    init?(containerID: UUID, level: Double, onSet: @escaping (Double) -> Void) {
+    /// `onSet` runs on the main thread with `display` and each level macOS sets.
+    init?(containerID: UUID, level: Double, onSet: @escaping (CGDirectDisplayID, Double) -> Void) {
         let properties: [String: Any] = [
             kIOHIDReportDescriptorKey: Data(Self.descriptor),
             kIOHIDVendorIDKey: 0x1209, kIOHIDProductIDKey: 0x0001, // pid.codes test IDs
@@ -118,8 +121,9 @@ final class BrightnessDevice {
             guard type == kIOHIDReportTypeFeature, id == Self.reportID, length >= 3 else { return kIOReturnUnsupported }
             let level = min(Double(UInt16(report[1]) | UInt16(report[2]) << 8) / Self.maxValue, 1)
             MainActor.assumeIsolated {
-                self?.level = level
-                onSet(level)
+                guard let self else { return }
+                self.level = level
+                onSet(self.display, level)
             }
             return kIOReturnSuccess
         }
