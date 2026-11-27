@@ -3,7 +3,7 @@ import Foundation
 import IOKit
 
 /// DDC/CI over Apple Silicon's private IOAVService I2C API, the same route MonitorControl and m1ddc use.
-/// Reads and writes VCP codes (brightness, volume) on an external display.
+/// Reads and writes VCP codes (brightness, volume) on an external display, and sets the EDID macOS sees for it.
 final class DDC: @unchecked Sendable {
     enum VCP: UInt8 {
         case brightness = 0x10
@@ -16,6 +16,10 @@ final class DDC: @unchecked Sendable {
     private static let create = dlsym(iokit, "IOAVServiceCreateWithService").map { unsafeBitCast($0, to: Create.self) }
     private static let read = dlsym(iokit, "IOAVServiceReadI2C").map { unsafeBitCast($0, to: Transfer.self) }
     private static let write = dlsym(iokit, "IOAVServiceWriteI2C").map { unsafeBitCast($0, to: Transfer.self) }
+    private typealias CopyEDID = @convention(c) (CFTypeRef, UnsafeMutablePointer<Unmanaged<CFData>?>) -> IOReturn
+    private typealias SetVirtualEDID = @convention(c) (CFTypeRef, UInt32, CFData?) -> IOReturn
+    private static let copyEDID = dlsym(iokit, "IOAVServiceCopyEDID").map { unsafeBitCast($0, to: CopyEDID.self) }
+    private static let setVirtualEDID = dlsym(iokit, "IOAVServiceSetVirtualEDIDMode").map { unsafeBitCast($0, to: SetVirtualEDID.self) }
 
     private let service: CFTypeRef
     /// Serializes I2C traffic; monitors misbehave when requests overlap.
@@ -82,6 +86,19 @@ final class DDC: @unchecked Sendable {
             var request: [UInt8] = [0x84, 0x03, vcp.rawValue, UInt8(value >> 8), UInt8(value & 0xFF)]
             _ = send(&request)
         }
+    }
+
+    /// The EDID macOS uses for the display, the virtual one while one is set.
+    func edid() -> [UInt8]? {
+        var data: Unmanaged<CFData>?
+        guard let copy = Self.copyEDID, copy(service, &data) == kIOReturnSuccess, let data = data?.takeRetainedValue() else { return nil }
+        return [UInt8](data as Data)
+    }
+
+    /// Makes macOS use `edid` for the display instead of its own, until it reconnects. The
+    /// display goes black for a moment while macOS takes it up.
+    func setVirtualEDID(_ edid: [UInt8]) -> Bool {
+        Self.setVirtualEDID?(service, 1, Data(edid) as CFData) == kIOReturnSuccess
     }
 
     /// Appends the DDC checksum to a payload and writes it, retrying once.

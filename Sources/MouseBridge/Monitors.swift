@@ -3,7 +3,7 @@ import Observation
 
 /// One connected display and the controls it actually supports.
 /// Brightness goes over DDC when the display answers, otherwise through gamma dimming, or a `Shade` on virtual
-/// displays that gamma doesn't reach.
+/// displays that gamma doesn't reach. A DDC display also gets macOS's own brightness slider (`NativeBrightness`).
 @MainActor @Observable
 final class Monitor: Identifiable {
     let id: CGDirectDisplayID
@@ -24,6 +24,8 @@ final class Monitor: Identifiable {
     enum Dimming { case ddc, gamma, shade }
 
     @ObservationIgnored private let ddc: DDC?
+    /// Where macOS's brightness slider for the display reads and sets the level, when it has one.
+    @ObservationIgnored let native: BrightnessDevice?
     @ObservationIgnored private let maxBrightness: UInt16
     @ObservationIgnored private let maxVolume: UInt16
     @ObservationIgnored private let nameKey: String
@@ -31,8 +33,9 @@ final class Monitor: Identifiable {
     /// Software-dimmed displays never go fully black.
     private static let minSoftwareBrightness = 0.1
 
-    fileprivate init(_ probe: Probe, softwareBrightness: Double?) {
+    fileprivate init(_ probe: Probe, softwareBrightness: Double?, native: BrightnessDevice?) {
         id = probe.id
+        self.native = native
         defaultName = NSScreen.screens.first { $0.displayID == probe.id }?.localizedName ?? "Display \(probe.id)"
         nameKey = "name.\(persistentKey(probe.id))"
         customName = UserDefaults.standard.string(forKey: nameKey) ?? ""
@@ -47,7 +50,7 @@ final class Monitor: Identifiable {
         let mirror = CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay
         dimming = ddcBrightness != nil ? .ddc : probe.virtual && !mirror ? .shade : .gamma
         if let ddcBrightness {
-            brightness = Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1))
+            brightness = min(Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1)), 1)
         } else {
             brightness = softwareBrightness ?? 1
             dim()
@@ -55,13 +58,26 @@ final class Monitor: Identifiable {
     }
 
     func setBrightness(_ value: Double) {
-        if let ddc {
+        if ddc != nil {
             brightness = min(max(value, 0), 1)
-            ddc.set(.brightness, UInt16((brightness * Double(maxBrightness)).rounded()))
+            // Set through macOS when the display has its slider, so the slider follows. The level comes back from
+            // `native` to `takeSystemBrightness`, which sends it to the display.
+            if native != nil, SystemBrightness.set(id, brightness) { return }
+            sendBrightness()
         } else {
             brightness = min(max(value, Self.minSoftwareBrightness), 1)
             dim()
         }
+    }
+
+    /// Takes a level macOS set with the display's own slider (Control Center, System Settings, `setBrightness`).
+    func takeSystemBrightness(_ level: Double) {
+        brightness = level
+        sendBrightness()
+    }
+
+    private func sendBrightness() {
+        ddc?.set(.brightness, UInt16((brightness * Double(maxBrightness)).rounded()))
     }
 
     /// Applies `brightness` in software.
@@ -90,6 +106,8 @@ private struct Probe: Sendable {
     let ddc: DDC?
     let brightness: (value: UInt16, max: UInt16)?
     let volume: (value: UInt16, max: UInt16)?
+    /// What macOS reads as the display's EDID, for displays that answer DDC.
+    let edid: [UInt8]?
     /// No framebuffer behind it, so gamma can't dim it.
     let virtual: Bool
 }
@@ -100,6 +118,7 @@ final class Monitors {
     private(set) var all: [Monitor] = []
     /// Counts reloads, so one superseded while it waits or probes is dropped.
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private let native = NativeBrightness()
 
     /// Re-probes every display after `settle`. DDC reads take tens of milliseconds each, so they run in the
     /// background. Right after a display change monitors often don't answer DDC yet and macOS resets gamma a moment
@@ -116,15 +135,41 @@ final class Monitors {
                 let brightness = ddc?.get(.brightness)
                 return Probe(
                     id: id, ddc: ddc, brightness: brightness, volume: brightness == nil ? nil : ddc?.get(.volume),
-                    virtual: !reachable.contains(id)
+                    edid: brightness == nil ? nil : ddc?.edid(), virtual: !reachable.contains(id)
                 )
             }
         }.value
         guard current == generation else { return }
         // Gamma resets on display changes, so software-dimmed levels are carried over and reapplied.
         let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
-        all = probes.map { Monitor($0, softwareBrightness: previous[$0.id]) }
+        let devices = native.link(probes.compactMap { p in
+            guard let ddc = p.ddc, let edid = p.edid, let b = p.brightness else { return nil }
+            return .init(id: p.id, ddc: ddc, edid: edid, level: min(Double(b.value) / Double(max(b.max, 1)), 1))
+        }) { [weak self] id, level in
+            self?.all.first { $0.id == id }?.takeSystemBrightness(level)
+        }
+        all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
         Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
+        for device in devices.values where !device.seeded {
+            device.seeded = true
+            seed(device)
+        }
+    }
+
+    /// Gives macOS's slider the display's level once per device, since macOS keeps its own last level rather than
+    /// reading the device's. Waits (up to 3 s) for macOS to link a device that was just created, then sets the level
+    /// of the monitor that has it now; if that fails, the next reload tries again. A device a reload drops meanwhile
+    /// is let go.
+    private func seed(_ device: BrightnessDevice) {
+        Task { [weak self, weak device] in
+            for _ in 0..<30 {
+                guard let id = device?.display, !SystemBrightness.isLinked(id) else { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard let device else { return }
+            guard let monitor = self?.all.first(where: { $0.native === device }),
+                  SystemBrightness.set(monitor.id, monitor.brightness) else { device.seeded = false; return }
+        }
     }
 
     /// Brightness key: steps the display under the cursor by 1/16, or 1/64 with Option+Shift.

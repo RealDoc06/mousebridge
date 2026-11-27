@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.application-identifier</key><string>2JT7745BQ2.it.realdoc06.mousebridge</string>
+  <key>com.apple.developer.team-identifier</key><string>2JT7745BQ2</string>
+  <key>com.apple.developer.hid.virtual.device</key><true/>
+</dict>
+</plist>
