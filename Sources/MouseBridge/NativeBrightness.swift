@@ -13,9 +13,11 @@ import OSLog
 final class NativeBrightness {
     /// Live devices by ContainerID. Kept across reloads, so macOS keeps its link to each display.
     private var devices: [UUID: BrightnessDevice] = [:]
-    /// Displays patched and waiting for their ContainerID, so a display change in the meantime doesn't blank them
-    /// again. Seeing the ContainerID, a refused patch or the display going away clears it.
-    private var patched: Set<UUID> = []
+    /// When each display waiting for its ContainerID was patched, so a display change in the meantime doesn't blank
+    /// it again. Seeing the ContainerID, a refused patch or the display going away clears it, and it expires after
+    /// `patchTimeout` (a replug inside the reload debounce drops the patch unseen).
+    private var patched: [UUID: ContinuousClock.Instant] = [:]
+    private static let patchTimeout = Duration.seconds(10)
     private let log = Logger(subsystem: "it.realdoc06.mousebridge", category: "brightness")
 
     /// A display that answers DDC, as probed.
@@ -28,8 +30,9 @@ final class NativeBrightness {
     }
 
     /// Sets up each display's device and patches its EDID, and returns the devices of displays macOS has linked
-    /// (their EDID carries the ContainerID). `onSet` gets macOS's changes as the ContainerID and the level (0...1).
-    func link(_ displays: [Display], onSet: @escaping (UUID, Double) -> Void) -> [CGDirectDisplayID: BrightnessDevice] {
+    /// (their EDID carries the ContainerID). `onSet` gets macOS's changes as the display and the level (0...1), from
+    /// the moment macOS links it.
+    func link(_ displays: [Display], onSet: @escaping (CGDirectDisplayID, Double) -> Void) -> [CGDirectDisplayID: BrightnessDevice] {
         var linked: [CGDirectDisplayID: BrightnessDevice] = [:]
         var live: [UUID: BrightnessDevice] = [:]
         for display in displays {
@@ -37,25 +40,26 @@ final class NativeBrightness {
             let current = EDID.containerID(in: display.edid)
             // A display with its own ContainerID (an Apple display) already has its brightness device.
             guard current == nil || current == own else { continue }
-            guard let device = devices[own] ?? BrightnessDevice(containerID: own, level: display.level, onSet: { onSet(own, $0) }) else {
+            let id = display.id
+            guard let device = devices[own] ?? BrightnessDevice(containerID: own, level: display.level, onSet: { onSet(id, $0) }) else {
                 log.error("no brightness device: is com.apple.developer.hid.virtual.device in the provisioning profile?")
                 continue
             }
             live[own] = device
             if current != nil {
                 linked[display.id] = device
-                patched.remove(own)
-            } else if !patched.contains(own), let edid = EDID.addingContainerID(own, to: display.edid) {
-                patched.insert(own)
+                patched[own] = nil
+            } else if patched[own].map({ .now - $0 > Self.patchTimeout }) ?? true, let edid = EDID.addingContainerID(own, to: display.edid) {
+                patched[own] = .now
                 Task.detached { [weak self, log] in
                     guard !display.ddc.setVirtualEDID(edid) else { return }
                     log.error("virtual EDID refused for \(own)")
-                    await MainActor.run { _ = self?.patched.remove(own) }
+                    await MainActor.run { self?.patched[own] = nil }
                 }
             }
         }
         devices = live
-        patched.formIntersection(live.keys)
+        patched = patched.filter { live[$0.key] != nil }
         return linked
     }
 }
@@ -65,8 +69,8 @@ final class NativeBrightness {
 /// entitlement, without which `init` fails.
 @MainActor
 final class BrightnessDevice {
-    /// Links the device to its display.
-    let containerID: UUID
+    /// False until macOS's slider has been given the display's level (see `Monitor`).
+    var seeded = false
     /// The level macOS reads back (0...1, linear in luminance): the last it set, or the display's when created.
     private(set) var level: Double
     private let device: IOHIDUserDevice
@@ -98,7 +102,6 @@ final class BrightnessDevice {
         ]
         guard let device = IOHIDUserDeviceCreateWithProperties(kCFAllocatorDefault, properties as CFDictionary, 0) else { return nil }
         self.device = device
-        self.containerID = containerID
         self.level = level
         // Reports carry the report ID byte, then the 16-bit value.
         IOHIDUserDeviceRegisterGetReportBlock(device) { [weak self] type, id, report, length in

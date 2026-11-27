@@ -51,7 +51,10 @@ final class Monitor: Identifiable {
         dimming = ddcBrightness != nil ? .ddc : probe.virtual && !mirror ? .shade : .gamma
         if let ddcBrightness {
             brightness = min(Double(ddcBrightness.value) / Double(max(ddcBrightness.max, 1)), 1)
-            if native != nil { syncSystemBrightness() }
+            if let native, !native.seeded {
+                native.seeded = true
+                seedSystemBrightness()
+            }
         } else {
             brightness = softwareBrightness ?? 1
             dim()
@@ -77,11 +80,13 @@ final class Monitor: Identifiable {
         sendBrightness()
     }
 
-    /// Gives macOS's slider the display's level, since macOS keeps its own last level rather than reading the
-    /// device's. Waits (up to 3 s) for macOS to link a device that was just created.
-    private func syncSystemBrightness() {
-        Task {
+    /// Gives macOS's slider the display's level once per device, since macOS keeps its own last level rather than
+    /// reading the device's. Waits (up to 3 s) for macOS to link a device that was just created, and gives up if a
+    /// reload replaces this monitor meanwhile.
+    private func seedSystemBrightness() {
+        Task { [weak self, id] in
             for _ in 0..<30 where !SystemBrightness.isLinked(id) { try? await Task.sleep(for: .milliseconds(100)) }
+            guard let self else { return }
             _ = SystemBrightness.set(id, brightness)
         }
     }
@@ -155,8 +160,8 @@ final class Monitors {
         let devices = native.link(probes.compactMap { p in
             guard let ddc = p.ddc, let edid = p.edid, let b = p.brightness else { return nil }
             return .init(id: p.id, ddc: ddc, edid: edid, level: min(Double(b.value) / Double(max(b.max, 1)), 1))
-        }) { [weak self] container, level in
-            self?.all.first { $0.native?.containerID == container }?.takeSystemBrightness(level)
+        }) { [weak self] id, level in
+            self?.all.first { $0.id == id }?.takeSystemBrightness(level)
         }
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
         Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
