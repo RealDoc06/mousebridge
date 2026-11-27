@@ -3,7 +3,8 @@ import Observation
 
 /// One connected display and the controls it actually supports.
 /// Brightness goes over DDC when the display answers, otherwise through gamma dimming, or a `Shade` on virtual
-/// displays that gamma doesn't reach. A DDC display also gets macOS's own brightness slider (`NativeBrightness`).
+/// displays that gamma doesn't reach. With `Monitors.systemSlider` on, a DDC display also gets macOS's own brightness
+/// slider (`NativeBrightness`).
 @MainActor @Observable
 final class Monitor: Identifiable {
     let id: CGDirectDisplayID
@@ -120,10 +121,22 @@ final class Monitors {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let native = NativeBrightness()
 
+    /// Gives DDC displays macOS's own brightness slider. Off by default: linking a display patches its EDID, which
+    /// blanks it for a moment on every launch after a reboot or reconnect. Turning it off drops the devices, so
+    /// macOS's slider goes away; the patched EDID stays until the display reconnects.
+    var systemSlider = UserDefaults.standard.bool(forKey: "systemSlider") {
+        didSet {
+            UserDefaults.standard.set(systemSlider, forKey: "systemSlider")
+            Task { await reload() }
+        }
+    }
+
     /// Re-probes every display after `settle`. DDC reads take tens of milliseconds each, so they run in the
     /// background. Right after a display change monitors often don't answer DDC yet and macOS resets gamma a moment
-    /// later, so changes settle first. That also folds a burst of change notifications into one probe.
-    func reload(settle: Duration = .zero) async {
+    /// later, so changes settle first. That also folds a burst of change notifications into one probe. A display
+    /// with a DDC channel that still doesn't answer (a monitor waking up after a mode change can take seconds) is
+    /// probed again up to `retries` times before it's left on software dimming.
+    func reload(settle: Duration = .zero, retries: Int = 3) async {
         generation += 1
         let current = generation
         try? await Task.sleep(for: settle)
@@ -143,7 +156,7 @@ final class Monitors {
         // Gamma resets on display changes, so software-dimmed levels are carried over and reapplied.
         let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
         let devices = native.link(probes.compactMap { p in
-            guard let ddc = p.ddc, let edid = p.edid, let b = p.brightness else { return nil }
+            guard systemSlider, let ddc = p.ddc, let edid = p.edid, let b = p.brightness else { return nil }
             return .init(id: p.id, ddc: ddc, edid: edid, level: min(Double(b.value) / Double(max(b.max, 1)), 1))
         }) { [weak self] id, level in
             self?.all.first { $0.id == id }?.takeSystemBrightness(level)
@@ -153,6 +166,9 @@ final class Monitors {
         for device in devices.values where !device.seeded {
             device.seeded = true
             seed(device)
+        }
+        if retries > 0, probes.contains(where: { $0.ddc != nil && $0.brightness == nil }) {
+            Task { await reload(settle: .seconds(2), retries: retries - 1) }
         }
     }
 

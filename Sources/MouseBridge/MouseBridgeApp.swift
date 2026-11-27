@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct MenuView: View {
-    let monitors: Monitors
+    @Bindable var monitors: Monitors
     let desk: Desk
     @Bindable var tap: EventTap
     let updater: SPUUpdater
@@ -86,6 +86,8 @@ struct MenuView: View {
                     .controlSize(.small)
                 }
                 ToggleRow(label: "Cursor bridge", isOn: $tap.bridgeEnabled)
+                ToggleRow(label: "macOS brightness slider", isOn: $monitors.systemSlider)
+                    .help("Control DDC displays from Control Center. Displays blink once when it links them.")
                 ToggleRow(label: "Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
                         try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
