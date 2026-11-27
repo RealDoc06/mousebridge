@@ -71,7 +71,8 @@ struct MenuView: View {
                     width: Self.width - 2 * (Theme.padding + Theme.cardPadding)
                 )
             }
-            ForEach(monitors.all) { MonitorControls(monitor: $0) }
+            if monitors.group.count > 1 { GroupControls(monitors: monitors) }
+            ForEach(monitors.all) { MonitorControls(monitors: monitors, monitor: $0) }
             Panel {
                 Text("Settings")
             } content: {
@@ -136,7 +137,23 @@ struct MenuView: View {
     }
 }
 
+/// The linked group's shared brightness, shown once two or more displays are linked.
+private struct GroupControls: View {
+    let monitors: Monitors
+
+    var body: some View {
+        let group = monitors.group
+        Panel {
+            Text("Linked")
+        } content: {
+            Text(group.map(\.name).joined(separator: ", ")).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+            LevelRow(label: "Brightness", value: group[0].brightness) { level in monitors.setBrightness(group[0], level) }
+        }
+    }
+}
+
 private struct MonitorControls: View {
+    let monitors: Monitors
     let monitor: Monitor
     /// The name being typed, non-nil while renaming.
     @State private var draft: String?
@@ -159,6 +176,11 @@ private struct MonitorControls: View {
                 Text(monitor.name).lineLimit(1).help(monitor.name)
                 Spacer()
                 Group {
+                    Button(monitor.linked ? "Unlink brightness" : "Link brightness", systemImage: "link") {
+                        monitors.setLinked(monitor, !monitor.linked)
+                    }
+                    .help(monitor.linked ? "Unlink brightness" : "Link brightness with other linked displays")
+                    .foregroundStyle(monitor.linked ? Color.accentColor : Color.secondary)
                     if !monitor.customName.isEmpty {
                         Button("Reset name", systemImage: "arrow.counterclockwise") { monitor.customName = "" }
                             .help("Reset to \(monitor.defaultName)")
@@ -181,7 +203,7 @@ private struct MonitorControls: View {
                 case .shade: Tag(text: "Overlay").help("Dimmed with an overlay. The device's own backlight is set on the device.")
                 }
             }
-            LevelRow(label: "Brightness", value: monitor.brightness, set: monitor.setBrightness)
+            LevelRow(label: "Brightness", value: monitor.brightness) { monitors.setBrightness(monitor, $0) }
             if let volume = monitor.volume {
                 LevelRow(label: "Volume", value: volume, set: monitor.setVolume)
             }

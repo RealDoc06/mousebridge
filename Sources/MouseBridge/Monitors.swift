@@ -4,7 +4,7 @@ import Observation
 /// One connected display and the controls it actually supports.
 /// Brightness goes over DDC when the display answers, otherwise through gamma dimming, or a `Shade` on virtual
 /// displays that gamma doesn't reach. With `Monitors.systemSlider` on, a DDC display also gets macOS's own brightness
-/// slider (`NativeBrightness`).
+/// slider (`NativeBrightness`). Linked displays (`linked`) share one brightness, see `Monitors.setBrightness`.
 @MainActor @Observable
 final class Monitor: Identifiable {
     let id: CGDirectDisplayID
@@ -15,6 +15,10 @@ final class Monitor: Identifiable {
         didSet { UserDefaults.standard.set(customName, forKey: nameKey) }
     }
     var name: String { customName.isEmpty ? defaultName : customName }
+    /// In the linked group, whose displays change brightness together. Saved per physical display.
+    var linked: Bool {
+        didSet { UserDefaults.standard.set(linked, forKey: linkedKey) }
+    }
     let hdrSupported: Bool
     let dimming: Dimming
     private(set) var brightness: Double
@@ -30,6 +34,9 @@ final class Monitor: Identifiable {
     @ObservationIgnored private let maxBrightness: UInt16
     @ObservationIgnored private let maxVolume: UInt16
     @ObservationIgnored private let nameKey: String
+    @ObservationIgnored private let linkedKey: String
+    /// Until when levels macOS reports are taken as echoes of one MouseBridge set, not the user's.
+    @ObservationIgnored private var echoesUntil = ContinuousClock.now
 
     /// Software-dimmed displays never go fully black.
     private static let minSoftwareBrightness = 0.1
@@ -40,6 +47,8 @@ final class Monitor: Identifiable {
         defaultName = NSScreen.screens.first { $0.displayID == probe.id }?.localizedName ?? "Display \(probe.id)"
         nameKey = "name.\(persistentKey(probe.id))"
         customName = UserDefaults.standard.string(forKey: nameKey) ?? ""
+        linkedKey = "linked.\(persistentKey(probe.id))"
+        linked = UserDefaults.standard.bool(forKey: linkedKey)
         hdrSupported = HDR.isSupported(probe.id)
         hdr = HDR.isEnabled(probe.id)
         let ddcBrightness = probe.brightness
@@ -63,7 +72,7 @@ final class Monitor: Identifiable {
             brightness = min(max(value, 0), 1)
             // Set through macOS when the display has its slider, so the slider follows. The level comes back from
             // `native` to `takeSystemBrightness`, which sends it to the display.
-            if native != nil, SystemBrightness.set(id, brightness) { return }
+            if native != nil, setSystemBrightness() { return }
             sendBrightness()
         } else {
             brightness = min(max(value, Self.minSoftwareBrightness), 1)
@@ -71,10 +80,18 @@ final class Monitor: Identifiable {
         }
     }
 
+    /// Sets macOS's level for the display to `brightness`, so its slider follows. False if macOS refused.
+    func setSystemBrightness() -> Bool {
+        echoesUntil = .now + .seconds(1)
+        return SystemBrightness.set(id, brightness)
+    }
+
     /// Takes a level macOS set with the display's own slider (Control Center, System Settings, `setBrightness`).
-    func takeSystemBrightness(_ level: Double) {
+    /// True when the user set it there, false for an echo of `setSystemBrightness`.
+    func takeSystemBrightness(_ level: Double) -> Bool {
         brightness = level
         sendBrightness()
+        return ContinuousClock.now >= echoesUntil
     }
 
     private func sendBrightness() {
@@ -159,7 +176,8 @@ final class Monitors {
             guard systemSlider, let ddc = p.ddc, let edid = p.edid, let b = p.brightness else { return nil }
             return .init(id: p.id, ddc: ddc, edid: edid, level: min(Double(b.value) / Double(max(b.max, 1)), 1))
         }) { [weak self] id, level in
-            self?.all.first { $0.id == id }?.takeSystemBrightness(level)
+            guard let self, let monitor = all.first(where: { $0.id == id }), monitor.takeSystemBrightness(level), monitor.linked else { return }
+            for other in group where other !== monitor { other.setBrightness(level) }
         }
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
         Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
@@ -184,16 +202,30 @@ final class Monitors {
             }
             guard let device else { return }
             guard let monitor = self?.all.first(where: { $0.native === device }),
-                  SystemBrightness.set(monitor.id, monitor.brightness) else { device.seeded = false; return }
+                  monitor.setSystemBrightness() else { device.seeded = false; return }
         }
     }
 
-    /// Brightness key: steps the display under the cursor by 1/16, or 1/64 with Option+Shift.
+    /// Linked displays, which change brightness together.
+    var group: [Monitor] { all.filter(\.linked) }
+
+    /// Sets the display's brightness, and the whole group's when it's linked.
+    func setBrightness(_ monitor: Monitor, _ level: Double) {
+        for m in monitor.linked ? group : [monitor] { m.setBrightness(level) }
+    }
+
+    /// Adds the display to the group or takes it out. Joining takes the group's level.
+    func setLinked(_ monitor: Monitor, _ on: Bool) {
+        if on, let level = group.first?.brightness { monitor.setBrightness(level) }
+        monitor.linked = on
+    }
+
+    /// Brightness key: steps the display under the cursor (and its group) by 1/16, or 1/64 with Option+Shift.
     func step(up: Bool, fine: Bool) {
         let cursor = CGEvent(source: nil)?.location ?? .zero
         guard let monitor = all.first(where: { CGDisplayBounds($0.id).contains(cursor) }) ?? all.first else { return }
         let step = (fine ? 1.0 / 64 : 1.0 / 16) * (up ? 1 : -1)
-        monitor.setBrightness(((monitor.brightness + step) * 64).rounded() / 64)
+        setBrightness(monitor, ((monitor.brightness + step) * 64).rounded() / 64)
         HUD.show(monitor.brightness, on: monitor.id)
     }
 
