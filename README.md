@@ -3,7 +3,7 @@
 # MouseBridge
 
 **Mixed monitors, one desk.**<br>
-Your cursor crosses between displays at the height it physically is, and every display gets brightness, volume and HDR in the menu bar.
+Your cursor crosses between displays at the height it physically is, and every display gets brightness in the menu bar, plus volume and HDR where it supports them.
 
 [![Latest release](https://img.shields.io/github/v/release/RealDoc06/mousebridge?style=flat-square&color=0a84ff&label=release)](https://github.com/RealDoc06/mousebridge/releases/latest) ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000?style=flat-square&logo=apple&logoColor=white) ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-required-000?style=flat-square)
 
@@ -11,13 +11,13 @@ Your cursor crosses between displays at the height it physically is, and every d
 
 <br>
 
-<img src="docs/crossing.svg" alt="macOS moves the cursor by pixels, so it jumps between a 24.5 inch 1080p and a 27 inch 1440p display. MouseBridge moves it by physical height." width="880">
+<img src="docs/crossing.svg" alt="macOS moves the cursor by points, so it jumps between a 24.5 inch 1080p and a 27 inch 1440p display. MouseBridge moves it by physical height." width="880">
 
 </div>
 
 ## Why
 
-macOS moves the cursor between displays by points. Put a 27" 1440p next to a 24.5" 1080p and the cursor jumps up or down every time it crosses, and part of the taller edge becomes a wall. MouseBridge reads each display's real size from its EDID and maps crossings to the same physical height, so the cursor goes straight across like the displays were one.
+macOS moves the cursor between displays by points. Put a 27" 1440p next to a 24.5" 1080p and the cursor jumps up or down every time it crosses, and part of the taller edge becomes a wall. MouseBridge reads each display's physical size and maps crossings to the same physical height, so the cursor goes straight across like the displays were one.
 
 ## Features
 
@@ -27,15 +27,15 @@ macOS moves the cursor between displays by points. Put a 27" 1440p next to a 24.
 
 **Real-scale arrangement.** The menu draws your displays at their true size. Drag one to match the desk, nudge it a pixel with the arrow keys, or drag past a neighbor to reorder it in macOS.
 
-**Alignment guides.** The ruler button draws guides on the real displays at every other display's edges and center, each in its own color, so you can line them up with the bezels.
+**Alignment guides.** The ruler button draws guides on the real displays where the other displays' edges and centers fall, each display in its own color, so you can line them up with the bezels.
 
 **Brightness that just works.** DDC/CI when the display answers, software dimming when it doesn't (common behind USB-C to HDMI adapters), an overlay for Sidecar. The brightness keys adjust the display under the cursor, Option+Shift for fine steps.
 
-**Native macOS slider.** Optionally, DDC displays get the same brightness slider in Control Center and System Settings that Apple displays have.
+**Native macOS slider.** Optionally, compatible DDC displays get the same brightness slider in Control Center and System Settings that Apple displays have.
 
 **Linked displays.** Link displays to change their brightness together, from any member's slider, keys, or Control Center.
 
-**HDR and volume.** Toggle HDR where supported, set volume on displays with speakers.
+**HDR and volume.** Toggle HDR where supported, set volume on displays that report speakers over DDC.
 
 **Auto updates.** Signed, notarized, and updated through Sparkle.
 
@@ -50,7 +50,7 @@ Turn on the guides and drag until the lines meet the bezels. Each display marks 
 ## Install
 
 1. Download the latest zip from [Releases](https://github.com/RealDoc06/mousebridge/releases/latest), unzip it, and move **MouseBridge** to Applications.
-2. Open it and grant **Accessibility** when asked. It runs the cursor bridge and the brightness keys.
+2. Open it and grant **Accessibility** when asked. It runs the cursor bridge and the brightness keys. If they don't start, use **Relaunch** in the menu.
 3. Open the menu bar icon and drag your displays to match the desk.
 
 Requires macOS 14 or later and Apple Silicon.
