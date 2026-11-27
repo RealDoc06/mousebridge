@@ -74,7 +74,8 @@ final class DDC: @unchecked Sendable {
     }
 
     /// Sets a VCP code. Fire and forget: monitors rarely acknowledge writes.
-    /// Rapid calls (a dragged slider) coalesce so only the latest value is sent.
+    /// Rapid calls (a dragged slider) coalesce so only the latest value is sent, with `writeInterval` between
+    /// writes.
     func set(_ vcp: VCP, _ value: UInt16) {
         let idle = lock.withLock {
             defer { pending[vcp] = value }
@@ -85,8 +86,12 @@ final class DDC: @unchecked Sendable {
             guard let value = lock.withLock({ pending.removeValue(forKey: vcp) }) else { return }
             var request: [UInt8] = [0x84, 0x03, vcp.rawValue, UInt8(value >> 8), UInt8(value & 0xFF)]
             _ = send(&request)
+            // DDC/CI asks for 50 ms between commands. Some monitors flicker or drop writes sent back to back.
+            usleep(Self.writeInterval)
         }
     }
+
+    private static let writeInterval: useconds_t = 50_000
 
     /// The EDID macOS uses for the display, the virtual one while one is set.
     func edid() -> [UInt8]? {
