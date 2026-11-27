@@ -182,9 +182,12 @@ final class Monitors {
             for other in group where other !== monitor { other.setBrightness(level) }
         }
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
-        // Linked displays come back at whatever level they report, so they take one that stayed connected, if any.
-        if let level = (group.first { kept.contains($0.id) } ?? group.first)?.brightness {
-            for m in group where m.brightness != level { m.setBrightness(level) }
+        // Linked displays come back at whatever level they report, so they take that of one that stayed connected
+        // (at launch, the first). Displays still waking up report none and are left to the retry.
+        let waking = Set(probes.filter { $0.ddc != nil && $0.brightness == nil }.map(\.id))
+        let answering = group.filter { !waking.contains($0.id) }
+        if let level = (answering.first { kept.contains($0.id) } ?? answering.first)?.brightness {
+            for m in retries > 0 ? answering : group where abs(m.brightness - level) > 1.0 / 128 { m.setBrightness(level) }
         }
         Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
         for device in devices.values where !device.seeded {
