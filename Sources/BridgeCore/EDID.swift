@@ -8,7 +8,7 @@ public enum EDID {
     /// The ContainerID in the EDID's DisplayID extension blocks, if any.
     public static func containerID(in edid: [UInt8]) -> UUID? {
         guard edid.count >= 128 else { return nil }
-        for start in stride(from: 128, to: min(edid.count, 128 * (Int(edid[126]) + 1)), by: 128) where edid[start] == 0x70 {
+        for start in stride(from: 128, to: min(edid.count, 128 * (Int(edid[126]) + 1)), by: 128) where start + 128 <= edid.count && edid[start] == 0x70 {
             // DisplayID section: version, payload length, product type, extension count, then data blocks.
             let end = min(start + 5 + Int(edid[start + 2]), start + 127)
             var block = start + 5

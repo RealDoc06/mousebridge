@@ -17,6 +17,7 @@ private let msiEDID: [UInt8] = {
 
     #expect(patched.count == 384 && patched[126] == 2)
     #expect(EDID.containerID(in: patched) == id)
+    #expect(EDID.containerID(in: Array(patched.prefix(300))) == nil) // truncated: no read past the end
     // Each 128-byte block still sums to 0, and the display keeps its ID once patched.
     for block in stride(from: 0, to: patched.count, by: 128) {
         #expect(patched[block..<block + 128].reduce(0) { ($0 + Int($1)) % 256 } == 0)
