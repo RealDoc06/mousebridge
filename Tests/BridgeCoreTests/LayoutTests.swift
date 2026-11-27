@@ -22,10 +22,17 @@ func mmAboveDesk(_ y: CGFloat, on d: Display) -> CGFloat { (d.frame.maxY - y) * 
     #expect(abs(mmAboveDesk(target.y, on: msi) - mmAboveDesk(1000, on: lenovo)) < 0.5)
 }
 
-@Test func lenovoTopStripCrossesOntoMsiTopRow() throws {
-    // macOS has no display left of rows 0..<360, so it clamps the cursor at x = 0.
-    let target = try #require(desk.remap(from: CGPoint(x: 1, y: 100), to: CGPoint(x: 0, y: 100), delta: CGVector(dx: -4, dy: 0)))
-    #expect(target == CGPoint(x: -1 - Layout.landingInset, y: 360))
+@Test func lenovoTopStripIsAWall() {
+    // Above the MSI physically; macOS has no display left of rows 0..<360 either, so it clamps the cursor at x = 0.
+    #expect(desk.remap(from: CGPoint(x: 1, y: 100), to: CGPoint(x: 0, y: 100), delta: CGVector(dx: -4, dy: 0)) == nil)
+}
+
+@Test func crossingMacOSMadePastTheWallClampsOntoTheNearestRow() {
+    // The MSI raised 40 mm: the Lenovo's bottom rows are below it physically, though macOS has the MSI beside them.
+    var raised = msi
+    raised.topMM -= 40
+    let layout = Layout(displays: [lenovo, raised])
+    #expect(layout.remap(from: CGPoint(x: 2, y: 1400), to: CGPoint(x: -1, y: 1400), delta: CGVector(dx: -3, dy: 0)) == CGPoint(x: -1 - Layout.landingInset, y: 1439))
 }
 
 @Test func crossingFollowsArrangedTops() throws {

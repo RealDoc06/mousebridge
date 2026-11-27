@@ -40,8 +40,8 @@ public enum Alignment: String, Sendable {
     }
 }
 
-/// Remaps horizontal edge crossings so the cursor keeps its physical height,
-/// and so every point of a shared edge can cross (clamping where one display is taller). Crossings between the
+/// Remaps horizontal edge crossings so the cursor keeps its physical height. Past a shorter display's top or bottom,
+/// the taller one's edge is a wall wherever macOS's arrangement walls it too. Crossings between the
 /// row and a display stacked above or below it keep the cursor's physical position along the desk instead.
 public struct Layout: Sendable {
     /// Displays the cursor crosses between side to side.
@@ -78,7 +78,8 @@ public struct Layout: Sendable {
         return across(from: prev, to: next, delta: delta) ?? between(from: prev, to: next, delta: delta)
     }
 
-    /// A left or right crossing between side-by-side displays, at the same physical height.
+    /// A left or right crossing between side-by-side displays, at the same physical height. Nil where no neighbor
+    /// is at that height and macOS kept the cursor on `src`: a wall.
     private func across(from prev: CGPoint, to next: CGPoint, delta: CGVector) -> CGPoint? {
         let dx = delta.dx
         guard let src = displays.first(where: { $0.frame.contains(prev) }),
@@ -93,7 +94,11 @@ public struct Layout: Sendable {
 
         let y = min(max(next.y, src.frame.minY), src.frame.maxY - 1)
         let mm = src.topMM + (y - src.frame.minY) * src.mmPerPoint
-        guard let dst = neighbors.min(by: { gap(mm, $0) < gap(mm, $1) }) else { return nil }
+        // Where `src` is taller than its neighbors, the strip past them is a wall, which macOS keeps where its
+        // arrangement has nothing beside it (see `Arrangement.macOSTops`). Where macOS already crossed, warping
+        // back doesn't stick, so the cursor clamps onto the nearest row of the display macOS entered instead.
+        guard let dst = neighbors.first(where: { $0.topMM <= mm && mm <= $0.topMM + $0.heightMM })
+            ?? neighbors.first(where: { $0.frame.contains(next) }) else { return nil }
 
         let localMM = min(max(mm - dst.topMM, 0), dst.heightMM)
         // Land a few points inside the destination so sensor jitter can't bounce the cursor straight back.
@@ -146,7 +151,8 @@ public struct Layout: Sendable {
     }
 
     /// Distance in points from `p` to the nearest edge the bridge handles, or nil when there is none: where two
-    /// displays sit side by side (spanning the full height of both, since `remap` clamps onto the shorter one), and
+    /// displays sit side by side (spanning the full height of both, since `remap` also blocks the walls macOS would let
+    /// the cursor through), and
     /// the edges between the row and a stacked display (those in front of it or touching it in macOS, and its own),
     /// all along them, since the cursor may cross anywhere there.
     public func distanceToSharedEdge(_ p: CGPoint) -> CGFloat? {
@@ -178,10 +184,5 @@ public struct Layout: Sendable {
     /// True when `b` sits directly below `a` in global points with columns in common: an edge macOS itself crosses.
     public static func stacks(_ a: CGRect, _ b: CGRect) -> Bool {
         abs(b.minY - a.maxY) < 1 && a.minX < b.maxX && b.minX < a.maxX
-    }
-
-    /// Vertical distance in mm from `mm` to `d`'s physical span, 0 when inside it.
-    private func gap(_ mm: CGFloat, _ d: Display) -> CGFloat {
-        max(d.topMM - mm, mm - (d.topMM + d.heightMM), 0)
     }
 }
