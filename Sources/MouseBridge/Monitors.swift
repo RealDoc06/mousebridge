@@ -150,20 +150,25 @@ final class Monitors {
         }
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
         Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
-        for case let (id, device) in devices where !device.seeded {
+        for device in devices.values where !device.seeded {
             device.seeded = true
-            seed(id, device)
+            seed(device)
         }
     }
 
     /// Gives macOS's slider the display's level once per device, since macOS keeps its own last level rather than
     /// reading the device's. Waits (up to 3 s) for macOS to link a device that was just created, then sets the level
-    /// of the display's current monitor; if that fails, the next reload tries again.
-    private func seed(_ id: CGDirectDisplayID, _ device: BrightnessDevice) {
-        Task { [weak self] in
-            for _ in 0..<30 where !SystemBrightness.isLinked(id) { try? await Task.sleep(for: .milliseconds(100)) }
-            guard let monitor = self?.all.first(where: { $0.id == id && $0.native === device }),
-                  SystemBrightness.set(id, monitor.brightness) else { device.seeded = false; return }
+    /// of the monitor that has it now; if that fails, the next reload tries again. A device a reload drops meanwhile
+    /// is let go.
+    private func seed(_ device: BrightnessDevice) {
+        Task { [weak self, weak device] in
+            for _ in 0..<30 {
+                guard let id = device?.display, !SystemBrightness.isLinked(id) else { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard let device else { return }
+            guard let monitor = self?.all.first(where: { $0.native === device }),
+                  SystemBrightness.set(monitor.id, monitor.brightness) else { device.seeded = false; return }
         }
     }
 
