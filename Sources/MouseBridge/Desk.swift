@@ -84,6 +84,8 @@ final class Desk {
     }
 
     private var rowIDs: Set<CGDirectDisplayID> = []
+    /// The origins `alignMacOS` last asked for, and where that attempt left those displays.
+    @ObservationIgnored private var lastAttempt: (requested: [CGDirectDisplayID: CGPoint], leftAt: [CGDirectDisplayID: CGPoint]) = ([:], [:])
     /// The row display each stacked display touches most, by display ID.
     private var stackedHosts: [CGDirectDisplayID: CGDirectDisplayID] = [:]
 
@@ -180,7 +182,32 @@ final class Desk {
         var saved = UserDefaults.standard.dictionary(forKey: Self.topsKey) as? [String: Double] ?? [:]
         for s in row { saved[s.key] = s.display.topMM }
         UserDefaults.standard.set(saved, forKey: Self.topsKey)
+        alignMacOS()
         onChange?(layout)
+    }
+
+    /// Moves the row's displays up or down in macOS's arrangement to match the desk (`Arrangement.macOSTops`), so
+    /// macOS's own crossings agree with the bridge. Stacked displays move with the one they sit on, and the main
+    /// display (else the row's left end) stays put. Call at launch, after the row changes, and once the display setup
+    /// settles after a change.
+    func alignMacOS() {
+        let row = row, tops = Arrangement.macOSTops(of: row.map(\.display))
+        guard row.count > 1 else { return }
+        let anchor = row.firstIndex { $0.id == CGMainDisplayID() } ?? 0
+        let shift = row[anchor].display.frame.minY - tops[anchor]
+        let moves = Dictionary(uniqueKeysWithValues: row.indices.map { (row[$0].id, tops[$0] + shift - row[$0].display.frame.minY) })
+        var origins: [CGDirectDisplayID: CGPoint] = [:]
+        for s in screens {
+            guard let dy = moves[s.id] ?? stackedHosts[s.id].flatMap({ moves[$0] }), dy != 0 else { continue }
+            origins[s.id] = CGPoint(x: s.display.frame.minX, y: s.display.frame.minY + dy)
+        }
+        let now = { Dictionary(uniqueKeysWithValues: origins.keys.map { ($0, CGDisplayBounds($0).origin) }) }
+        // The same request with the displays still where the last attempt left them: Quartz refused or nudged it
+        // and would again, so reconfiguring can't loop. A new target, or anything that moves them since, like a
+        // reconnect, allows a new attempt.
+        guard !origins.isEmpty, lastAttempt.requested != origins || lastAttempt.leftAt != now() else { return }
+        configure(origins)
+        lastAttempt = (origins, now())
     }
 
     /// Moves a stacked display's physical left edge along the desk to `left` (mm) and saves it against the display
@@ -196,8 +223,8 @@ final class Desk {
         onChange?(layout)
     }
 
-    /// Puts the displays side by side in macOS's arrangement in `order`, left to right, keeping each one's
-    /// vertical position. Stacked displays move with the display they sit on.
+    /// Puts the displays side by side in macOS's arrangement in `order`, left to right, then lines up their heights
+    /// for the new neighbors (`alignMacOS`). Stacked displays move with the display they sit on.
     func reorder(_ order: [CGDirectDisplayID]) {
         guard canReorder else { return }
         let frames = order.map(CGDisplayBounds)
@@ -210,6 +237,7 @@ final class Desk {
             origins[id] = CGPoint(x: hostOrigin.x + f.minX - CGDisplayBounds(host).minX, y: f.minY)
         }
         configure(origins)
+        alignMacOS()
     }
 
     /// Moves a display in macOS's arrangement to `origin` (global points): a stacked one along or onto another

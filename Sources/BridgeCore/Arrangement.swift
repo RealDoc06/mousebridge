@@ -87,6 +87,23 @@ public enum Arrangement {
         public let center: Bool
     }
 
+    /// Where each of `row`'s displays (left to right, side by side) goes vertically in macOS's arrangement, in global
+    /// points, keeping the first where it is. Each lines up the middle of its physical overlap with its left neighbor
+    /// on the same rows in both. macOS crosses by points before the bridge sees a move, so its crossings then fall
+    /// where the displays physically meet, and macOS itself walls off strips past a shorter one. The bridge is left to
+    /// add crossings macOS refuses, which a warp does reliably, not to undo ones macOS made, which a warp doesn't.
+    public static func macOSTops(of row: [Display]) -> [CGFloat] {
+        var tops: [CGFloat] = []
+        for (a, b) in zip([nil] + row.map(Optional.some), row) {
+            guard let a, let aTop = tops.last else { tops.append(b.frame.minY); continue }
+            let mid = (max(a.topMM, b.topMM) + min(a.topMM + a.heightMM, b.topMM + b.heightMM)) / 2
+            let top = aTop + (mid - a.topMM) / a.mmPerPoint - (mid - b.topMM) / b.mmPerPoint
+            // Quartz keeps side-by-side displays sharing a row.
+            tops.append(min(max(top, aTop - b.frame.height + 1), aTop + a.frame.height - 1).rounded())
+        }
+        return tops
+    }
+
     /// Where a stacked display sits along the desk before it's placed by hand, as an offset (mm) of its left edge from
     /// `host`'s: centered where macOS centers it (`frame`), at the host's scale, as a drop places it in macOS, but
     /// overlapping the host physically by as much as it does in macOS (up to its own width), so the cursor bridge

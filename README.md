@@ -17,13 +17,13 @@ Your cursor crosses between displays at the height it physically is, and every d
 
 ## Why
 
-macOS moves the cursor between displays by points. Put a 27" 1440p next to a 24.5" 1080p and the cursor jumps up or down every time it crosses, and part of the taller edge becomes a wall. MouseBridge reads each display's physical size and maps crossings to the same physical height, so the cursor goes straight across like the displays were one.
+macOS moves the cursor between displays by points. Put a 27" 1440p next to a 24.5" 1080p and the cursor jumps up or down every time it crosses, and the taller edge has a wall in the wrong place. MouseBridge reads each display's physical size and maps crossings to the same physical height, so the cursor goes straight across like the displays were one, and walls off only the strip past the shorter display's bezels.
 
 ## Features
 
 <img src="docs/menu.png" alt="The MouseBridge menu: arrangement, linked brightness, per display brightness, volume and HDR, settings" width="320" align="right">
 
-**Cursor bridge.** Left and right crossings land at the same physical height. The extra strip of a taller display clamps to the nearest row, so the whole edge crosses. A display stacked above or below the row (an iPad under a monitor) is entered only where it physically sits.
+**Cursor bridge.** Left and right crossings land at the same physical height. Past a shorter display's top or bottom, the taller display's edge is a wall. A display stacked above or below the row (an iPad under a monitor) is entered only where it physically sits.
 
 **Real-scale arrangement.** The menu draws your displays at their true size. Drag one to match the desk, nudge it a pixel with the arrow keys, or drag past a neighbor to reorder it in macOS.
 
@@ -58,6 +58,7 @@ Requires macOS 14 or later and Apple Silicon.
 ## Good to know
 
 - **macOS brightness slider** (Settings) publishes a virtual brightness device and gives the display a virtual EDID. The display goes black for a moment while macOS picks it up, again after a reboot or reconnect. Displays whose EDID already has a ContainerID, and identical displays with no serial number, keep MouseBridge's own slider and keys.
+- **macOS arrangement.** MouseBridge moves side-by-side displays up or down in macOS's arrangement to match the desk, so macOS crosses only where the displays physically meet and stops the cursor at the walls itself. If the shorter display has as many points as the taller one, macOS can't match the desk, and those strips cross onto the nearest row instead.
 - **Sidecar and other virtual displays** ignore gamma, so they're dimmed with a click-through overlay. An iPad's own backlight stays set on the iPad.
 - **Scope.** The bridge handles side-by-side displays and displays stacked on them. Other vertical crossings, like inside a 2×2 grid, are left to macOS.
 

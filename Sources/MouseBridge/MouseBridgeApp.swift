@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tap.onBrightnessKey = { [monitors] up, fine in monitors.step(up: up, fine: fine) }
         desk.onChange = { [tap] in tap.arrangement = $0 }
         desk.reload()
+        desk.alignMacOS()
         Task { await monitors.reload() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [self] _ in
             MainActor.assumeIsolated {
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task {
                     await monitors.reload(settle: .seconds(1))
                     desk.reload()
+                    desk.alignMacOS()
                 }
             }
         }

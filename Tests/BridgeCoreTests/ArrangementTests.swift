@@ -139,3 +139,12 @@ import Testing
     #expect(Arrangement.faces(1000, widthMM: 265, row: [m, l])) // under the Lenovo's right part
     #expect(!Arrangement.faces(1200, widthMM: 265, row: [m, l])) // past the row's right end at 1144 mm
 }
+
+@Test func macOSTopsMeetWhereTheDisplaysPhysicallyDo() {
+    // Bottom bezels level: the MSI faces the Lenovo's rows 143...1440, so its 1080 rows are centered on 792.
+    #expect(Arrangement.macOSTops(of: [msi, lenovo]) == [360, 108])
+    // Centered: the Lenovo's rows 72...1368, centered on 720.
+    var centered = msi
+    centered.topMM = (lenovo.heightMM - msi.heightMM) / 2
+    #expect(Arrangement.macOSTops(of: [lenovo, centered]) == [0, 180])
+}
