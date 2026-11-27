@@ -95,11 +95,10 @@ final class Desk {
         let active = activeDisplays()
         // A mirror shows another display's content, so only the display it mirrors takes a place.
         let ids = active.filter { CGDisplayScreenSize($0).width > 0 && CGDisplayMirrorsDisplay($0) == kCGNullDirectDisplay }
-        // Identical monitors that report no serial would share a key, so those also key by the port they're on.
         var screens = ids.map { id in
             Screen(
                 id: id,
-                key: CGDisplaySerialNumber(id) == 0 ? "\(persistentKey(id))-\(CGDisplayUnitNumber(id))" : persistentKey(id),
+                key: uniqueKey(id),
                 display: Display(frame: CGDisplayBounds(id), widthMM: CGDisplayScreenSize(id).width)
             )
         }
@@ -245,4 +244,9 @@ final class Desk {
 /// Identifies a physical display across reboots and reconnects, where display IDs can change.
 func persistentKey(_ id: CGDirectDisplayID) -> String {
     "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))"
+}
+
+/// `persistentKey`, plus the port for displays that report no serial, so identical monitors don't share a key.
+func uniqueKey(_ id: CGDirectDisplayID) -> String {
+    CGDisplaySerialNumber(id) == 0 ? "\(persistentKey(id))-\(CGDisplayUnitNumber(id))" : persistentKey(id)
 }

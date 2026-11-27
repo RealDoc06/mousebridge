@@ -47,7 +47,7 @@ final class Monitor: Identifiable {
         defaultName = NSScreen.screens.first { $0.displayID == probe.id }?.localizedName ?? "Display \(probe.id)"
         nameKey = "name.\(persistentKey(probe.id))"
         customName = UserDefaults.standard.string(forKey: nameKey) ?? ""
-        linkedKey = "linked.\(persistentKey(probe.id))"
+        linkedKey = "linked.\(uniqueKey(probe.id))"
         linked = UserDefaults.standard.bool(forKey: linkedKey)
         hdrSupported = HDR.isSupported(probe.id)
         hdr = HDR.isEnabled(probe.id)
@@ -82,8 +82,9 @@ final class Monitor: Identifiable {
 
     /// Sets macOS's level for the display to `brightness`, so its slider follows. False if macOS refused.
     func setSystemBrightness() -> Bool {
+        guard SystemBrightness.set(id, brightness) else { return false }
         echoesUntil = .now + .seconds(1)
-        return SystemBrightness.set(id, brightness)
+        return true
     }
 
     /// Takes a level macOS set with the display's own slider (Control Center, System Settings, `setBrightness`).
@@ -170,6 +171,7 @@ final class Monitors {
             }
         }.value
         guard current == generation else { return }
+        let kept = Set(all.map(\.id))
         // Gamma resets on display changes, so software-dimmed levels are carried over and reapplied.
         let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
         let devices = native.link(probes.compactMap { p in
@@ -180,6 +182,10 @@ final class Monitors {
             for other in group where other !== monitor { other.setBrightness(level) }
         }
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
+        // Linked displays come back at whatever level they report, so they take one that stayed connected, if any.
+        if let level = (group.first { kept.contains($0.id) } ?? group.first)?.brightness {
+            for m in group where m.brightness != level { m.setBrightness(level) }
+        }
         Shade.keep(all.filter { $0.dimming == .shade }.map(\.id))
         for device in devices.values where !device.seeded {
             device.seeded = true
