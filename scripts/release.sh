@@ -1,12 +1,16 @@
 #!/bin/sh
 # Publishes a GitHub release that installed copies pick up through Sparkle.
-# Usage: scripts/release.sh 0.2.0
+# Usage: scripts/release.sh [version]
+# Without a version it releases the next patch after the latest tag (v0.4.0 -> 0.4.1). Pass one only for a deliberate
+# minor or major bump.
 # Needs: gh auth, the Sparkle EdDSA key in SPARKLE_KEY (default ~/.config/mousebridge/sparkle_ed25519),
 # and a notarytool keychain profile in NOTARY_PROFILE (default "mousebridge"; empty skips notarizing).
 set -eu
 cd "$(dirname "$0")/.."
 
-VERSION="${1:?usage: scripts/release.sh <version>}"
+git fetch --tags --quiet
+LATEST="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
+VERSION="${1:-$(echo "${LATEST:-v0.0.0}" | sed 's/^v//' | awk -F. '{ print $1 "." $2 "." $3 + 1 }')}"
 TAG="v$VERSION"
 OUT=build/release
 ZIP="$OUT/MouseBridge-$VERSION.zip"

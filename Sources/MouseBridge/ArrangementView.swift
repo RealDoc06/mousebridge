@@ -2,14 +2,14 @@ import BridgeCore
 import SwiftUI
 
 /// The side-by-side displays (`Desk.row`) at real scale, as on the desk. Dragging one up or down sets where it physically
-/// sits, which the cursor bridge maps crossings by, and the arrows nudge the selected one a pixel at a time.
+/// sits, which the cursor bridge maps crossings by, and the arrow keys nudge the selected one a pixel at a time.
 /// Dragging one past a neighbor reorders macOS's arrangement. With guides on, drags snap to aligned edges and
 /// `GuideOverlay` draws the guides on the real displays, each display's in its own color. Displays stacked above or
 /// below the row (`Desk.stacked`) sit at real scale too, against the row displays in front of them; dragging one
 /// sets where it physically sits along the desk, which the cursor bridge crosses to it by, and moves it in macOS to
 /// match as far as points allow, onto another display or to the other side. Dragged past either end of the row, it
 /// docks beside the end display and joins the row; an end display dragged past the canvas's top or bottom leaves the
-/// row and stacks on its neighbor.
+/// row and stacks on its neighbor. The arrow keys move a selected stacked display along the desk a pixel at a time.
 struct ArrangementView: View {
     let desk: Desk
     /// Label for each display, by display ID.
@@ -18,10 +18,12 @@ struct ArrangementView: View {
 
     /// Resets by itself when a drag ends or is cancelled, e.g. by the popup closing.
     @GestureState private var drag: Drag?
-    /// The display the arrows move: the last one tapped or dragged.
+    /// The display the arrow keys move: the last one tapped or dragged.
     @State private var selected: CGDirectDisplayID?
     /// Whether the popup is open. MenuBarExtra keeps this view alive while it's closed.
     @State private var open = false
+    /// The canvas takes the arrow keys while focused: from when the popup opens, or a display is picked.
+    @FocusState private var focused: Bool
 
     private struct Drag: Equatable {
         let id: CGDirectDisplayID
@@ -45,40 +47,32 @@ struct ArrangementView: View {
     private static let maxHeight: CGFloat = 240
 
     var body: some View {
-        // Until one is picked, the arrows move the first display that isn't the main one.
-        let target = selected.flatMap { id in desk.row.first { $0.id == id } }?.id
-            ?? desk.row.first { $0.id != CGMainDisplayID() }?.id
+        // Until one is picked, the arrow keys move the first row display that isn't the main one, or a stacked one
+        // when the row is a lone display, which can't move.
+        let ids = desk.row.map(\.id) + desk.stacked.map(\.screen.id)
+        let target = selected.flatMap { ids.contains($0) ? $0 : nil }
+            ?? (desk.row.count > 1 ? desk.row.first { $0.id != CGMainDisplayID() }?.id : nil) ?? desk.stacked.first?.screen.id
         Panel {
             Text("Arrangement")
             Spacer()
-            controls(target: target)
+            // A display alone in the row with nothing stacked on it has nothing to line up with.
+            if desk.row.count > 1 || !desk.stacked.isEmpty {
+                Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
+                    .foregroundStyle(desk.guides ? .yellow : .secondary)
+                    .help(desk.guides ? "Hide guides" : "Show guides on the displays")
+                    .fontWeight(.regular)
+            }
         } content: {
             canvas(target: target)
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focused)
+                .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
+                    target.map { nudge($0, press.key) }
+                    return .handled
+                }
+                .onChange(of: open) { _, open in if open { focused = true } }
         }
-    }
-
-    /// The arrows that nudge the selected display a pixel, and the guides toggle. A display alone in the row has
-    /// nothing to nudge against, and with nothing stacked on it either, nothing to line up with.
-    @ViewBuilder private func controls(target: CGDirectDisplayID?) -> some View {
-        if desk.row.count > 1 { arrows(target: target) }
-        if desk.row.count > 1 || !desk.stacked.isEmpty {
-            Button("Guides", systemImage: "ruler") { desk.guides.toggle() }
-                .foregroundStyle(desk.guides ? .yellow : .secondary)
-                .help(desk.guides ? "Hide guides" : "Show guides on the displays")
-                .fontWeight(.regular)
-        }
-    }
-
-    private func arrows(target: CGDirectDisplayID?) -> some View {
-        Group {
-            Button("Move up", systemImage: "arrow.up") { target.map { nudge($0, pixels: -1) } }
-                .help("Move the selected display up a pixel")
-            Button("Move down", systemImage: "arrow.down") { target.map { nudge($0, pixels: 1) } }
-                .help("Move the selected display down a pixel")
-        }
-        .buttonRepeatBehavior(.enabled)
-        .foregroundStyle(.secondary)
-        .fontWeight(.regular)
     }
 
     /// What the guides show: the row as arranged and the stacked displays, drags included.
@@ -233,14 +227,14 @@ struct ArrangementView: View {
                     .offset(x: f.inset + left * f.scale, y: (top - f.originMM) * f.scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
-                    .onTapGesture { selected = screen.id }
+                    .onTapGesture { pick(screen.id) }
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
                             .updating($drag) { value, drag, _ in drag = Drag(id: screen.id, value) }
                             .onEnded {
                                 let drag = Drag(id: screen.id, $0)
+                                pick(screen.id)
                                 if let u = undock(drag, in: base) { return lift(screen.id, u) }
-                                selected = screen.id
                                 commit(drag, scale: f.scale)
                             }
                     )
@@ -255,16 +249,18 @@ struct ArrangementView: View {
                         size: CGSize(width: display.widthMM, height: display.heightMM), frame: d.frame
                     )
                 } ?? placements[s.screen.id] ?? place(s, offset: nil, row: placed.displays, lefts: rowLefts, map: map, scale: f.scale)
-                tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: false, guide: guideColor(row.count + k))
+                tile(d, name: names[s.screen.id] ?? "Display", dragged: dragged, selected: s.screen.id == target, guide: guideColor(row.count + k))
                     .frame(width: p.size.width * f.scale, height: p.size.height * f.scale)
                     .offset(x: f.inset + p.left * f.scale, y: (p.top - f.originMM) * f.scale)
                     .zIndex(dragged ? 1 : 0)
                     .animation(dragged ? nil : .snappy(duration: 0.2), value: placed.order)
+                    .onTapGesture { pick(s.screen.id) }
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
                             .updating($drag) { value, drag, _ in drag = Drag(id: s.screen.id, value) }
                             .onEnded { value in
                                 let drag = Drag(id: s.screen.id, value)
+                                pick(s.screen.id)
                                 if let end = dock(drag, in: base) { return dockBeside(s, at: end) }
                                 let p = place(s, offset: drag.offset, row: placed.displays, lefts: rowLefts, map: map, scale: f.scale)
                                 guard p.frame.origin != d.frame.origin || abs(p.left - d.leftMM) > 0.01 else { return }
@@ -414,14 +410,33 @@ struct ArrangementView: View {
         return lefts
     }
 
-    /// Moves a display by `pixels` of its panel, without snapping, so it can sit just off a guide.
-    /// A display alone in the row has nothing to line up with, so it stays put.
-    private func nudge(_ id: CGDirectDisplayID, pixels: CGFloat) {
-        guard desk.row.count > 1, let i = desk.row.firstIndex(where: { $0.id == id }) else { return }
-        let d = desk.row[i].display
-        let top = Arrangement.place(i, at: d.topMM + pixels * d.widthMM / CGFloat(nativePixelWidth(id)), in: desk.row.map(\.display))
-        if top != d.topMM { desk.setTop(top, of: id) }
+    /// Selects a display for the arrow keys, and gives them to the canvas.
+    private func pick(_ id: CGDirectDisplayID) {
+        selected = id
+        focused = true
     }
+
+    /// Moves a display a pixel of its own panel for an arrow key, without snapping, so it can sit just off a guide.
+    /// Each moves along the axis it drags on: a row display up or down (one alone in the row has nothing to line up
+    /// with, so it stays put), a stacked one along the desk, its center kept over the row as a drag keeps it.
+    private func nudge(_ id: CGDirectDisplayID, _ key: KeyEquivalent) {
+        if let i = desk.row.firstIndex(where: { $0.id == id }) {
+            let dy: CGFloat = key == .upArrow ? -1 : key == .downArrow ? 1 : 0
+            guard dy != 0, desk.row.count > 1 else { return }
+            let d = desk.row[i].display
+            let top = Arrangement.place(i, at: d.topMM + dy * pixelMM(d, id), in: desk.row.map(\.display))
+            if top != d.topMM { desk.setTop(top, of: id) }
+        } else if let d = desk.stacked.first(where: { $0.screen.id == id })?.screen.display {
+            let dx: CGFloat = key == .leftArrow ? -1 : key == .rightArrow ? 1 : 0
+            guard dx != 0 else { return }
+            let end = desk.row.map(\.display.widthMM).reduce(0, +) - d.widthMM / 2
+            let left = min(max(d.leftMM + dx * pixelMM(d, id), min(-d.widthMM / 2, d.leftMM)), max(end, d.leftMM))
+            if left != d.leftMM { desk.setLeft(left, of: id) }
+        }
+    }
+
+    /// One pixel of a display's panel, in mm.
+    private func pixelMM(_ d: Display, _ id: CGDirectDisplayID) -> CGFloat { d.widthMM / CGFloat(nativePixelWidth(id)) }
 
     /// The panel's own pixel width, from its native mode. A scaled mode's backing pixels can be smaller or larger.
     private func nativePixelWidth(_ id: CGDirectDisplayID) -> Int {
