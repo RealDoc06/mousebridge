@@ -197,7 +197,7 @@ final class Monitors {
             device.seeded = true
             seed(device)
         }
-        if retries > 0, probes.contains(where: { $0.ddc != nil && $0.brightness == nil }) {
+        if retries > 0, !waking.isEmpty {
             Task { await reload(settle: .seconds(2), retries: retries - 1) }
         }
     }
