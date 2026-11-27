@@ -47,10 +47,11 @@ struct ArrangementView: View {
     private static let maxHeight: CGFloat = 240
 
     var body: some View {
-        // Until one is picked, the arrow keys move the first row display that isn't the main one, or a stacked one.
+        // Until one is picked, the arrow keys move the first row display that isn't the main one, or a stacked one
+        // when the row is a lone display, which can't move.
         let ids = desk.row.map(\.id) + desk.stacked.map(\.screen.id)
         let target = selected.flatMap { ids.contains($0) ? $0 : nil }
-            ?? desk.row.first { $0.id != CGMainDisplayID() }?.id ?? desk.stacked.first?.screen.id
+            ?? (desk.row.count > 1 ? desk.row.first { $0.id != CGMainDisplayID() }?.id : nil) ?? desk.stacked.first?.screen.id
         Panel {
             Text("Arrangement")
             Spacer()
@@ -232,8 +233,8 @@ struct ArrangementView: View {
                             .updating($drag) { value, drag, _ in drag = Drag(id: screen.id, value) }
                             .onEnded {
                                 let drag = Drag(id: screen.id, $0)
-                                if let u = undock(drag, in: base) { return lift(screen.id, u) }
                                 pick(screen.id)
+                                if let u = undock(drag, in: base) { return lift(screen.id, u) }
                                 commit(drag, scale: f.scale)
                             }
                     )

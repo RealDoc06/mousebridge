@@ -8,6 +8,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+git fetch --tags --quiet
 LATEST="$(git tag --list 'v*' --sort=-v:refname | head -n 1)"
 VERSION="${1:-$(echo "${LATEST:-v0.0.0}" | sed 's/^v//' | awk -F. '{ print $1 "." $2 "." $3 + 1 }')}"
 TAG="v$VERSION"
