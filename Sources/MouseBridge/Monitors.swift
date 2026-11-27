@@ -138,6 +138,8 @@ final class Monitors {
     /// Counts reloads, so one superseded while it waits or probes is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let native = NativeBrightness()
+    /// Displays with a DDC channel that didn't answer the last probe. They show 100% until they do.
+    @ObservationIgnored private var waking: Set<CGDirectDisplayID> = []
 
     /// Gives DDC displays macOS's own brightness slider. Off by default: linking a display patches its EDID, which
     /// blanks it for a moment on every launch after a reboot or reconnect. Turning it off drops the devices, so
@@ -171,7 +173,9 @@ final class Monitors {
             }
         }.value
         guard current == generation else { return }
-        let kept = Set(all.map(\.id))
+        // Displays that answered the last probe too, whose level the group can trust.
+        let kept = Set(all.map(\.id)).subtracting(waking)
+        waking = Set(probes.filter { $0.ddc != nil && $0.brightness == nil }.map(\.id))
         // Gamma resets on display changes, so software-dimmed levels are carried over and reapplied.
         let previous = Dictionary(all.filter { $0.dimming != .ddc }.map { ($0.id, $0.brightness) }, uniquingKeysWith: { a, _ in a })
         let devices = native.link(probes.compactMap { p in
@@ -182,9 +186,8 @@ final class Monitors {
             for other in group where other !== monitor { other.setBrightness(level) }
         }
         all = probes.map { Monitor($0, softwareBrightness: previous[$0.id], native: devices[$0.id]) }
-        // Linked displays come back at whatever level they report, so they take that of one that stayed connected
+        // Linked displays come back at whatever level they report, so they take that of one that answered before
         // (at launch, the first). Displays still waking up report none and are left to the retry.
-        let waking = Set(probes.filter { $0.ddc != nil && $0.brightness == nil }.map(\.id))
         let answering = group.filter { !waking.contains($0.id) }
         if let level = (answering.first { kept.contains($0.id) } ?? answering.first)?.brightness {
             for m in retries > 0 ? answering : group where abs(m.brightness - level) > 1.0 / 128 { m.setBrightness(level) }
